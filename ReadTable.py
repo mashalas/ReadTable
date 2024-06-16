@@ -1,270 +1,245 @@
 #!/usr/bin/python3
 
-import numpy as np
-import datetime
 from pprint import pprint
-from math import sqrt # для вычисления стандартного отклонения
-
-"""dates = [datetime.datetime(2024, 1, 1, 0, 0), datetime.datetime(2024, 1, 2, 0, 0), datetime.datetime(2024, 1, 3, 0, 0), datetime.datetime(2024, 1, 4, 0, 0), datetime.datetime(2024, 1, 5, 0, 0)]
-print(dates)
-mn = min(dates)
-mx = max(dates)
-print("mn:", mn)
-print("mx:", mx)
-exit(0)"""
+from collections import OrderedDict
+import datetime
+import numpy as np
+import statistics
 
 
-# удалить комментарий
-def remove_comment(s, comment_symbol):
-    p = s.find(comment_symbol)
-    #print(s, p)
+NPCOLUMN_KIND__SIMPLE = "simple"
+NPCOLUMN_KIND__OHE = "ohe"
+NPCOLUMN_KIND__MAPPING = "mapping"
+
+DATA_TYPE__UNKNOWN = "unknown"
+DATA_TYPE__INTEGER = "integer"
+DATA_TYPE__FLOAT = "float"
+DATA_TYPE__TIME = "time"
+DATA_TYPE__STRING = "string"
+
+"""
+x1 = [
+    "abc", 
+    "cde",
+    [1,2,3], 
+    {
+        "src_name": "q1",
+        "dst_name": "w2",
+        "stat": {
+            "begin":-1.0, 
+            "end":+1.0, 
+            "values":["up", "down", "flat"]
+        }
+    }
+]
+x2 = x1.copy()
+x1[0] = "qaz"
+pprint(x2)
+exit(0)
+"""
+
+# ----- удалить комментарий -----
+def remove_comment(s, comment_sequence):
+    p = s.find(comment_sequence)
     if p >= 0:
         s = s[0:p]
     s = s.strip()
     return s
 
-# Являются ли два массива одинаковыми по содержанию
-def equal_string_lists(list1, list2, case_sensitive = True):
-    if len(list1) != len(list2):
-        return False # массивы различаются по длине
-    for i in range(len(list1)):
-        s1 = list1[i]
-        s2 = list2[i]
-        if not case_sensitive:
-            s1 = s1.lower()
-            s2 = s2.lower()
-        if s1 != s2:
-            return False # в i-й позиции значения различаются
-    return True # два идентичных массива
-
-
-# ------- Получить номера столбцов по указанным именам (вместо имени может быть номер, тогда записать этот номер) -------
-def get_columns_numbers(header, custum_columns, ignore_case = False):
-    if custum_columns == None:
-        return []
-    if type(custum_columns) == type("stroka") or type(custum_columns) == type(12345):
-        # передан скаляр вместо массива - превратить в массив из одного элемента
-        custum_columns = [custum_columns]
-    result = []
-    if len(custum_columns) == 0:
-        # пустой массив - все столбцы
-        result = [i for i in range(len(header))]
-        return result
-    # указаны столбцы (номер или имя)
-    for c in custum_columns:
-        c_saved = c
-        if type(c) == type(123):
-            # указан номер столбца
-            if c < 0:
-                # указан номер столбца с конца
-                c = len(header) + c
-            if c < 0 or c >= len(header):
-                raise Exception("Invalid column number {}." . format(c_saved))
-            result.append(c)
-        else:
-            # указано имя столбца
-            if ignore_case:
-                c = c.lower()
-            found = False
-            for j in range(len(header)):
-                h = header[j]
-                if ignore_case:
-                    h = h.lower()
-                if c == h:
-                    result.append(j)
-                    found = True
-                    break
-            if not found:
-                raise Exception("Column \"{}\" not found." . format(c_saved))
+# ----- Попытаться преобразовать строку к дробному числу (при ошибке - None) -----
+# ----- comma_to_dots: когда True - заменить запятую на точку перед конвертацией -----
+def strToFloat(s, comma_to_dots = False):
+    if comma_to_dots:
+        s = s.replace(",", ".")
+    result = None
+    try:
+        result = float(s)
+    except:
+        result = None
     return result
 
-#A = get_columns_numbers(["sn", "DateTime", "Stoch1"], ["stoch1", 1, "Sn"], False)
-#print(A)
-#exit(0)
+#x = strToFloat(",123456789", True);  print("x=", x, type(x));  exit(0)
 
+# ----- Среднее отклонение от среднего значения (заранее вычисленного) -----
+def get_avg_deviation(items, avg:float) -> float:
+    deviation = 0.0
+    n = 0
+    for x in items:
+        deviation += abs(x - avg)
+        n += 1
+    deviation /= n
+    return deviation
 
-# ----- Найти позицию строки seek в массиве items (-1 - если не найдено) -----
-def seek_by_name(seek: str, items, ignore_case:bool = False):
-    if ignore_case:
-        seek = seek.lower()
-    for i in range(len(items)):
-        s = items[i]
-        if ignore_case:
-            s = s.lower()
-        if seek == s:
-            return i
-    return -1
-
-
-def add_simple_specification(src_column_name: str, dst_column_name:str, header, specs_list, ignore_case:bool  = False):
-    src_column_index = seek_by_name(src_column_name, header, ignore_case)
-    if src_column_index < 0:
-        #print(ignore_case, header)
-        msg = "Column [{}] not found." . format(src_column_name)
-        raise Exception(msg)
-    if dst_column_name == "":
-        # если целевое имя столбца не указано - установить его таким же, как имя исходного столбца
-        dst_column_name = src_column_name
-    specs_list.append({
-        "kind": "simple",
-        "src_column_index": src_column_index,
-        "src_column_name": src_column_name,
-        "dst_column_name": dst_column_name
-    })
-
-
-def add_ohe_specification(src_column_name: str, specification: str, header, specs_list, ignore_case:bool = False):
-    src_column_index = seek_by_name(src_column_name, header, ignore_case)
-    if src_column_index < 0:
-        msg = "Column [{}] not found." . format(src_column_name)
-        raise Exception(msg)
-    splits1 = specification.split(";")
-    for s1 in splits1:
-        #dst_column_index += 1
-        #print(s1)
-        p = s1.find("=")
-        if p > 0:
-            #suffix = s1[p+1:len(s1)]
-            dst_column_name = s1[p+1:len(s1)]
-            s1 = s1[0:p]
+# ----- Процентиль ------
+def get_procentile(prc:float, items, already_sorted:bool = False, keep_out_sorted:bool = False):
+    if not already_sorted:
+        if keep_out_sorted:
+            # наружу из фукнции выйдет сортированный массив (сортировать переданный массив)
+            items.sort() 
         else:
-            #suffix = s1
-            dst_column_name = src_column_name + "=" + s1
-        src_values = s1.split(",")
-        specs_list.append({
-            "kind": "ohe",
-            "src_column_index": src_column_index,
-            "src_column_name": src_column_name,
-            #"dst_column_name": src_column_name + "=" + suffix,
-            "dst_column_name": dst_column_name,
-            "src_values": src_values
-        })
+            # сортировка не выйдет за пределы функции (создать новый массив для сортировки)
+            items = sorted(items) 
 
+    n = len(items)
+    p = int(prc * n)
+    if p < 0:
+        p = 0
+    if p >= n:
+        p = n - 1
+    return items[p]
 
-def add_map_specification(src_column_name:str, specification:str, dst_column_name:str, header, specs_list, ignore_case:bool = False):
-    src_column_index = seek_by_name(src_column_name, header, ignore_case)
-    if src_column_index < 0:
-        msg = "Column [{}] not found." . format(src_column_name)
-        raise Exception(msg)
-    splits1 = specification.split(";")
-    mappings = {}
-    for s1 in splits1:
-        p = s1.find("=")
-        value = s1[p+1:len(s1)]
-        s1 = s1[0:p]
-        keys = s1.split(",")
-        for k in keys:
-            mappings[k] = value
-    specs_list.append({
-        "kind": "map",
-        "src_column_index": src_column_index,
-        "src_column_name": src_column_name,
-        "dst_column_name": dst_column_name,
-        "mappings": mappings
-    })
-
-
-def split_with_escaping(s:str, delimiter:str):
+# ----- На основе массива items получить список с наиболее частыми значениями списка -----
+# ----- каждый элемент полученного массива - кортёж, в котором первый элемент - значение из items[], 
+# второй элемент кортежа - сколько раз это значение встречается в items[] -----
+def get_most_frequent(items, max_count = 0):
+    uniq_dict = {}
+    for x in items:
+        if not x in uniq_dict:
+            uniq_dict[x] = 1
+        else:
+            uniq_dict[x] += 1
+    #print(uniq_dict)
+    uniq_counting = []
+    for key in uniq_dict.keys():
+        uniq_counting.append({"v":key, "n": uniq_dict[key]})
+    uniq_counting = sorted(uniq_counting, key=lambda d:d["n"], reverse=True)
+    #print(uniq_counting)
     result = []
-    if len(delimiter) == 0:
-        result.append(s)
-        return result
-    #
-    # ab\::cd::efg => [ab::cd, efg]
-    # 012345678901 {10}
-    delimiter_len = len(delimiter)
-    elem = ""
-    i = 0
-    while i < len(s):
-        p1 = i
-        p2 = p1 + delimiter_len
-        delimiter_candidate = s[p1:p2]
-        #print(delimiter_candidate)
-        if delimiter_candidate == delimiter:
-            #print("delimiter found")
-            delimiter_found = True
-            if len(elem) > 0:
-                if elem[-1] == "\\":
-                    delimiter_found = False
-                    elem = elem[0:len(elem)-1]
-                    #print("not delimiter")
-            if delimiter_found:
-                if elem != "" or len(result) > 0: # чтобы не добавлять пустой первый элемент
-                    result.append(elem)
-                elem = ""
-                i += delimiter_len
-                continue
-        elem += s[i]
-        i += 1
-    if len(elem) > 0:
+    for i in range(len(uniq_counting)):
+        if max_count > 0 and i >= max_count:
+            break
+        result.append((uniq_counting[i]["v"], uniq_counting[i]["n"], ))
+    return result
+    #uniq_count = len(uniq_counting)
+    #return uniq_count, result
+
+"""X = [10, 8, 7, 10, 11, 7, 12, 100, 10, 7, 8, 5, 10, 6]
+print(X)
+Y = get_most_frequent(X, 400)
+uc = len(set(X))
+print("unique count:", uc)
+print(Y)
+exit(0)"""
+
+# ----- Гистограмма при разбивке на barCount интервалов -----
+def calcHistogram(items, barsCount, minValue = None, maxValue = None):
+    if minValue == None:
+        minValue = min(items)
+    if maxValue == None:
+        maxValue = max(items)
+
+    # [2 5 8 11]  [ (2-5) (5-8) (8-11) ]   min=2, max=11, BarsCount=3 => barSize=(11-2)/3 = 9/3 = 3
+    barSize = (maxValue - minValue) / barsCount
+    result = []
+    for i in range(barsCount):
+        barMin = minValue + i*barSize
+        barMax = barMin + barSize
+        cnt = 0
+        for x in items:
+            if x >= barMin and x <= barMax:
+                cnt += 1
+        #result.append({"min": barMin, "max": barMax, "cnt": cnt})
+        elem = OrderedDict()
+        elem["min"] = barMin
+        elem["max"] = barMax
+        elem["cnt"] = cnt
         result.append(elem)
     return result
 
-#s = "ab\::cd::efg"; d = "::"
-#s = "ab:cd\:efg:123"; d = ":"
-#s = ":::ab:::cd\:::efg:::123"; d = ":::"
-#s = ":::ab:::cd\:::efg:::123:::"; d = ":::"
-#parts = split_with_escaping(s, d)
-#print(parts)
-#exit(0)
-
-def parse_columns_specifications(str_specifications_list, header, ignore_case:bool = False):
+# ----- Гистограмма составляемая из символов char -----
+def charsHistogram(histogram, maxCharsCount = 50, char = "X"):
     result = []
-    for one_str_spec in str_specifications_list:
-        #parts = one_str_spec.split(":")
-        parts = split_with_escaping(one_str_spec, ":")
-        #print(parts); exit(0)
-        if len(parts) >= 3:
-            src_column_name = parts[0]
-            transformation = parts[1].lower()
-            specification = parts[2]
-            
-            # указана не просто имя столбца из файла, но и некоторое действие с этим столбцом (OneHotEncoding, Mapping, Simple); первый элемент parts[] - имя столбца из файла
-            if transformation == "ohe":
-                add_ohe_specification(src_column_name, specification, header, result, ignore_case)
-            elif transformation == "map":
-                if len(parts) > 3:
-                    dst_column_name = parts[3]
-                else:
-                    dst_column_name = src_column_name
-                add_map_specification(src_column_name, specification, dst_column_name, header, result, ignore_case)
-            elif transformation == "simple":
-                add_simple_specification(src_column_name, specification, header, result, ignore_case)
-            else:
-                msg = "Wrong transformation [{}]" . format(specification)
-                raise Exception(msg)
-        else:
-            # указано только имя столбца
-            add_simple_specification(parts[0], "", header, result, ignore_case)
+    max_cnt = histogram[0]["cnt"]
+    for h in histogram:
+        if h["cnt"] > max_cnt:
+            max_cnt = h["cnt"]
+    max_cnt = float(max_cnt)
+    for h in histogram:
+        #charsCount = int(float(h["cnt"]) / max_cnt * maxCharsCount)
+        charsCount_float = float(h["cnt"]) / max_cnt * maxCharsCount
+        charsCount = int(round(charsCount_float))
+        s = char * charsCount
+        result.append(s)
     return result
 
 """
-header = ["height", "Width", "size", "Trend", "Stoch:13x5x3"]
-#str_spec = ["width"]
-#str_spec = ["width", "height"]
-#str_spec = ["width:simple:wdt"]
-#str_spec = ["trend:OHE:sell,down=TrendDown;flat;buy,up"]
-#str_spec = ["trend:map:sell,down=-1;flat=0;buy,up,bear=1"]
-#str_spec = ["trend:map:sell,down=-1;flat=0;buy,up,bear=1:TrendSign"]
-#str_spec = ["trend:map:sell,down=-1;flat=0;buy,up,bear=1:trn"]
-str_spec = ["stoch\:13x5x3:OHE:q=StochQ;w,W=StochW;e"]
-spec = parse_columns_specifications(str_spec, header, True)
-print("------------------- header:", header, " -------------------")
-pprint(spec)
+X = [
+    2.0751807571421494,
+    1.0391028584276123,
+    -1.6558126466519922,
+    -2.572104560492662,
+    -1.832003875258554,
+    0.5862320960932519,
+    0.08546626872509777,
+    0.26758993956038407,
+    -0.027422134234278164,
+    1.542746340925399,
+    -0.036116125211141284,
+    0.25920118891616484,
+    -0.4845548325412525,
+    -0.1978893237790782,
+    -1.7054633048468613,
+    1.165640674176765,
+    -0.2800543198900789,
+    0.9528562680881849,
+    0.18192888785686775,
+    -1.3276614896327792
+]
+print(X)
+hist = calcHistogram(X, 7, min(X), max(X))
+pprint(hist)
+char_hist = charsHistogram(hist, 100)
+pprint(char_hist)
 exit(0)
 """
 
-"""def func1():
-    return 123, "abc", 456.789
+# ----- Получить самую длинную строку в массиве -----
+def getLongestString(items):
+    longestString = items[0]
+    max_len = len(longestString)
+    for s in items:
+        if len(s) > max_len:
+            longestString = s
+            max_len = len(longestString)
+    return longestString
 
-xi, s1, xf = func1()
-print(xi, s1, xf); exit(0)"""
+#X = ["qq", "www", "1234", "eee", "4567"]
+#print(getLongestString(X))
+#exit(0)
 
-#print("abc123"[1].isdigit()); exit(0)
+# ----- Подсчёт статистик для перечислимых типов данных (целое, строка, время) -----
+def calcEnumeratedStatistics(items, stat_dict, most_frequent_count = 10) -> None:
+    stat_dict["unique_count"] = len(set(items))
+    stat_dict["most_frequent"] = get_most_frequent(items, most_frequent_count)
+
+# ----- Подсчёт статистик для числовых типов данных (целое, дробное) -----
+def calcNumericStatistics(items, stat_dict) -> None:
+    stat_dict["min"] = min(items)
+    stat_dict["max"] = max(items)
+    stat_dict["avg"] = statistics.mean(items)
+    stat_dict["stdev"] = statistics.stdev(items)
+    #stat_dict["avgdev"] = get_avg_deviation(items, stat_dict["avg"])
+
+#x1 = 100.5
+#s1 = str(x1)
+#s1 = "{:.2f}" . format(x1)
+#print(s1)
+#exit(0)
+    
+
+# ----- Подсчёт процентилей для массива (числа или время) -----
+def calcProcentiles(items, stat_dict, procentiles = [0.1, 0.25, 0.5, 0.75, 0.9]) -> None:
+    items_sorted = sorted(items)
+    stat_dict["procentiles"] = OrderedDict()
+    for prc in procentiles:
+        #prc_name = "prc#" + str(prc)
+        #stat_dict[prc_name] = get_procentile(prc, items_sorted, already_sorted=True)
+        prc_name = "prc#{:.2f}" . format(prc)
+        stat_dict["procentiles"][prc_name] = get_procentile(prc, items_sorted, already_sorted=True)
+
 
 # ------- Попытаться преобразовать строку в дату/время; вернуть дату или None, если конвертирование не удалось -------
-def string_to_time(s):
-    # !!! добавить генерацию ошибки, если конвертирование не удалось
+def strToTime(s):
     #                     123456
     # dd.mm.yyyy hh:mm:ss.micros
     # yyyy-mm-dd hh:mm:ss.micros
@@ -341,7 +316,8 @@ def string_to_time(s):
         except:
             return None
         
-    if len(s) >= 21:
+    if len(s) >= 21 and not s[19].isdigit() :
+        # микросекунды
         i = 20
         micros_str = ""
         while i < len(s) and i < 26:
@@ -349,6 +325,8 @@ def string_to_time(s):
                 micros_str += s[i]
                 i += 1
 
+        n1 = len(micros_str)
+        #print("micros_str:", micros_str, "  n1:", n1)
         # удалить ведущие нули
         leading_zeros_count = 0
         while len(micros_str) > 0 and micros_str[0] == "0":
@@ -358,6 +336,10 @@ def string_to_time(s):
         try:
             micros = int(micros_str)
             #micros = float("0." + micros_str)
+            n2 = 6 - n1
+            for i in range(n2):
+                micros *= 10
+            #print("micros:", micros)
         except:
             return None
 
@@ -368,493 +350,772 @@ def string_to_time(s):
         return None
     return result
 
+# ------- На какой тип данных похожа строка переданная в s -------
+# ----- вернуть приведённое к определённому типу значение и название типа данных -----
+def detectDataTypeForString(s:str, comma_to_dots:bool) -> str:
+    try:
+        # является ли переданный параметр целым числом
+        x = int(s)
+        return DATA_TYPE__INTEGER
+    except:
+        pass
 
-s = "29.02.2024 00:07:03.0012";
-#s = "2029.02.29"
-d = string_to_time(s)
-print(d)
-#d = datetime.datetime(2024, 4, 19, 16, 39, 41, 0012); print(d)
-exit(0)
+    # является ли переданный параметр дробным числом (возможно, запятая вместо точки)
+    x = strToFloat(s, comma_to_dots)
+    if x != None:
+        return DATA_TYPE__FLOAT
 
-# ------ Среднее значение для массива целых или дробных чисел -------
-def get_avg(items) -> float:
-    sum = 0.0
+    # является ли переданный параметр датой/временем в форматах dd.mm.yyyy hh:mm:ss или yyyy-mm-dd hh:mm:ss
+    x = strToTime(s)
+    if x != None:
+        return DATA_TYPE__TIME
+
+    # оставить переданный параметр строкой
+    return DATA_TYPE__STRING
+
+# ----- Определить тип данных (целое, дробное, время, строка) -----
+def detectDataTypeForList(items, comma_to_dots:bool) -> str:
+    if len(items) == 0:
+        # нет данных в массиве
+        return DATA_TYPE__UNKNOWN
+    detectedDataType = DATA_TYPE__UNKNOWN
     for x in items:
-        sum += x
-    avg = sum / len(items)
-    return avg
+        currentDataType = detectDataTypeForString(x, comma_to_dots)
+        if detectedDataType == DATA_TYPE__UNKNOWN:
+            # первый элемент списка
+            detectedDataType = currentDataType
+            if detectedDataType == DATA_TYPE__STRING:
+                # если строка - дальше не проверять, так и останется строка
+                break
+        else:
+            # последующие элементы, сравнить с типом определённым для предшествующих элементов
+            if currentDataType != detectedDataType:
+                # для нового элемента тип данных отличается от предыдущих
+                if currentDataType == DATA_TYPE__INTEGER:
+                    # новый элемент - целое число
+                    if detectedDataType == DATA_TYPE__FLOAT:
+                        currentDataType = DATA_TYPE__FLOAT
+                    elif detectedDataType == DATA_TYPE__TIME:
+                        detectedDataType = DATA_TYPE__STRING
+                elif currentDataType == DATA_TYPE__FLOAT:
+                    # новый элемент - дробное число
+                    if detectedDataType == DATA_TYPE__INTEGER:
+                        detectedDataType = DATA_TYPE__FLOAT
+                    elif detectedDataType == DATA_TYPE__TIME:
+                        detectedDataType = DATA_TYPE__STRING
+                elif currentDataType == DATA_TYPE__TIME:
+                    # новый элемент - время
+                    if detectedDataType == DATA_TYPE__INTEGER:
+                        detectedDataType = DATA_TYPE__STRING
+                    elif detectedDataType == DATA_TYPE__FLOAT:
+                        detectedDataType = DATA_TYPE__STRING
+                elif currentDataType == DATA_TYPE__STRING:
+                    detectedDataType = DATA_TYPE__STRING
+                if detectedDataType == DATA_TYPE__STRING:
+                    # столбец останется строкой
+                    break
+    return detectedDataType
 
-# ------ Стандартное отклонение для массива целых или дробных чисел -------
-def get_std_dev(items, avg) -> float:
-    st = 0.0
-    for x in items:
-        st += (x - avg)*(x - avg)
-    st /= len(items)
-    st = sqrt(st)
-    return st
-
-# ------ Сколько раз значение встречается в массиве -------
-def count_value_in_array(seek, items):
-    cnt = 0
-    for x in items:
-        if x == seek:
-            cnt += 1
-    return cnt
-
-# ------------------------------- class ReadTable ------------------------------
-class ReadTable:
-    delimiter:str = "\t"
-    #comment_sequence: str = "#"
-    comment_symbol: str = "#"
-    header = [] # названия столбцов
-    header__ignore_case: bool = False # игнорировать различие в регистре при сопоставлении указанных пользователем названий столбцов с названиями столбцов в файле
-    transform__ignore_case: bool = False # игнорировать различие в регистре при сопоставлении пользовательских значений трансформаций OHE и Map
-    ignore_bad: bool = False # при несовпадении количества столбцов с размером заголовка продолжать чтение файла (True) или вызвать исключение (False)
-    notify_on_bad: bool = False # выдавать сообщение при обнаружении некорректных строк
-    comma_to_dots: bool = False # заменять запятые на точки в дробных числах
-    procentiles = [0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.98, 0.99]
-    unique_max_count: int = 10
-    multidelimiters_to_one: bool = False # заменять несколько разделителей столбцов на один
-    print_warnings: bool = False
-
-    NP__DEFAULT_ROWS_COUNT: int = 3 # сколько строк изначально выделяется в numpy-массиве
-    np__x_reserved_count:int = 0
-    np__y_reserved_count:int = 0
-    np__x_fact_count:int = 0
-    np__y_fact_count:int = 0
-    #np__data_rows_count: int = 0 # фактически используемое количество строк в numpy-массиве
-    #np__reserved_rows_count: int = 0 # сколько строк зарезирвировано в numpy-массиве
-    np__reservation_increment = 1.618 # на сколько увеличить количество зарезервированных строк в numpy-массиве
-    np__dtype = np.float64 # тип данных numpy-массивов X и Y
-
-    XNames = []
-    YNames = []
-    #fields = {}
-    A = None # analyze
-    X = None
-    Y = None
-    #Data = None
-
-    OHE_MATCH = 1.0
-    OHE_MISS = 0.0
-
-    DATA_TYPE__INTEGER = "i"
-    DATA_TYPE__FLOAT = "f"
-    DATA_TYPE__TIME = "t"
-    DATA_TYPE__STRING = "s"
-    DATA_TYPE__UNKNOWN = "?"
+def convertListToDataType(items, targetDataType:str, comma_to_dots:bool) -> None:
+    itemsCount = len(items)
+    if targetDataType == DATA_TYPE__INTEGER:
+        for i in range(itemsCount):
+            items[i] = int(items[i])
+    elif targetDataType == DATA_TYPE__FLOAT:
+        for i in range(itemsCount):
+            items[i] = strToFloat(items[i], comma_to_dots)
+    elif targetDataType == DATA_TYPE__TIME:
+        for i in range(itemsCount):
+            items[i] = strToTime(items[i])
+    elif targetDataType == DATA_TYPE__STRING:
+        # для строк не планируется выполнять конвертацию, т.к. изначально данные записываются в виде строки,
+        # но на всякий случай пусть будет заложена возможность конвертации
+        for i in range(itemsCount):
+            items[i] = str(items[i])
 
 
-    def __init__(self, delimiter: str = "\t", comment_symbol: str = '#'):
-        self.delimiter = delimiter
-        self.comment_symbol = comment_symbol
-        self.reset()
 
-    def reset(self):
-        self.header.clear()
-        self.np__data_rows_count = 0
-        self.np__reserved_rows_count = 0
-        #self.fields = {}
-        self.A = None
-        self.X = None
-        self.Y = None
-        #self.Data = None
-        #self.reset_errors()
+class _RT_NPContainer:
 
+    def __init__(self) -> None:
+        #self.name = name
+        self.columns = []
+        self.data = None
+        self.used_rows_count = -1
+        self.reserved_rows_count = -1
+        self.OHE_when_matched = 1.0
+        self.OHE_when_missed = 0.0
+        self.checkPartsFunction = None
 
-    def get_float(self, s: str) -> float:
-        if self.comma_to_dots:
-            s = s.replace(",", ".")
-        return float(s)
+    """def _addColumn(self, kind, src_name, dst_name, advanced = None):
+        columnDefinition = {
+            "kind": kind,
+            "src_name": src_name,
+            "dst_name": dst_name,
+            "src_number": None
+        }
+        if kind == NPCOLUMN_KIND__OHE:
+            columnDefinition["values"] = advanced
+        if kind == NPCOLUMN_KIND__MAPPING:
+            columnDefinition["mappings"] = advanced
+        self.columns.append(columnDefinition)"""
 
+    """def _addNPColumn(self, container, kind, src_name, dst_name, advanced = None):
+        if not container in self.NPs.keys():
+            self.NPs[container] = {
+                "columns": [],
+                "NPData": None,
+                "used_rows_count": -1,
+                "reserved_rows_count": -1,
+                "check_line": None,
+                "check_parts": None
+            }
+        self.NPs[container]["columns"].append({
+            "kind": kind,
+            "src_name": src_name,
+            "dst_name": dst_name,
+            "src_number": None
+        })
+        n = len(self.NPs[container]["columns"]) - 1
+        if kind == NPCOLUMN_KIND__OHE and advanced != None:
+            self.NPs[container]["columns"][n]["values"] = advanced
+        if kind == NPCOLUMN_KIND__MAPPING and advanced != None:
+            self.NPs[container]["columns"][n]["mappings"] = advanced
+    """ 
 
-    # ----- Добавить в numpy-массив значения из массива items[] содержащем значения некоторой строки читаемого файла -----
-    def add_to_numpy(self, columns_specification, items, NPArray, fact_rows_count) -> None:
-        for dst_column_index in range(len(columns_specification)):
-            spec = columns_specification[dst_column_index]
-            src_column_index = spec["src_column_index"]
-            kind = spec["kind"]
-            value = items[src_column_index]
-            if kind == "map":
-                NPArray[fact_rows_count][dst_column_index] = spec["mappings"][value]
-            elif kind == "ohe":
-                if value in spec["src_values"]:
-                    NPArray[fact_rows_count][dst_column_index] = self.OHE_MATCH
-                else:
-                    NPArray[fact_rows_count][dst_column_index] = self.OHE_MISS
-            else:
-                NPArray[fact_rows_count][dst_column_index] = self.get_float(items[src_column_index])
+    def addColumn_Numeric(self, src_name, dst_name = ""):
+        if dst_name == "":
+            dst_name = src_name
+        #self._addColumn(NPCOLUMN_KIND__SIMPLE, src_name, dst_name)
+        self.columns.append({
+            "kind": NPCOLUMN_KIND__SIMPLE,
+            "src_name": src_name,
+            "dst_name": dst_name,
+            "src_number": None
+        })
 
+    def addColumn_OHE(self, src_name, dst_name, values):
+        if dst_name == "":
+            dst_name = src_name
+        #self._addColumn(NPCOLUMN_KIND__OHE, src_name, dst_name, values)
+        self.columns.append({
+            "kind": NPCOLUMN_KIND__OHE,
+            "src_name": src_name,
+            "dst_name": dst_name,
+            "src_number": None,
+            "values": values
+        })
 
-    # ----- Добавить записи как есть в словарь -----
-    def add_to_analyze(self, AnalyzeColumnsNumbs, items, A):
-        for ci in AnalyzeColumnsNumbs:
-            cn = self.header[ci]
-            value = items[ci]
-            A[cn]["items"].append(value)
+    def addColumn_Mapping(self, src_name, dst_name, mappings, unmapped = 0.0):
+        if dst_name == "":
+            dst_name = src_name
+        #self._addColumn(NPCOLUMN_KIND__MAPPING, src_name, dst_name, mappings)
+        self.columns.append({
+            "kind": NPCOLUMN_KIND__MAPPING,
+            "src_name": src_name,
+            "dst_name": dst_name,
+            "src_number": None,
+            "mappings": mappings,
+            "unmapped": unmapped
+        })
 
+    # ----- Выделить память для numpy-массива (rows_count - количество строк) -----
+    # ----- numpy-массив в неиницализированных элементах содержит нули (выделение памяти функцией np.zeros) -----
+    def allocateMemory(self, rows_count, dtype=np.float64):
+        self.reserved_rows_count = rows_count
+        self.used_rows_count = 0
+        columns_count = len(self.columns)
+        self.data = np.zeros((rows_count, columns_count), dtype=dtype)
 
-    # ------- На какой тип данных похожа строка переданная в value -------
-    def detect_data_type(self, value, comma_to_dots = False):
-        try:
-            # является ли value целым числом
-            x = int(value)
-            return x, self.DATA_TYPE__INTEGER
-        except:
-            pass
+    # ----- Удалить неиспользованные столбцы numpy-массива -----
+    def trimUnusedRows(self):
+        columns_count = len(self.columns)
+        self.data.resize((self.used_rows_count, columns_count), refcheck=False)
 
-        try:
-            # является ли value дробным числом
-            value_tmp = value
-            if comma_to_dots:
-                value_tmp = value
-            x = float(value_tmp)
-            return x, self.DATA_TYPE__FLOAT
-        except:
-            pass
-
-        # является ли value датой/временем в форматах dd.mm.yyyy hh:mm:ss или yyyy-mm-dd hh:mm:ss
-        x = string_to_time(value)
-        if x != None:
-            return x, self.DATA_TYPE__TIME
-
-        # оставить value строкой
-        return value, self.DATA_TYPE__STRING
-
-
-    # ------- Для анализируемых столбцов определить тип данных и сконвертировать прочитанные записи в соответствующий тип данных (изначально читаются как строка) ------
-    def analyze__data_types(self, A):
-        for cn in A.keys():
-            #print(cn)
-            for i in range(len(A[cn]["items"])):
-                value = A[cn]["items"][i]
-                value, data_type = self.detect_data_type(value, self.comma_to_dots)
-                #print(cn, i, value, data_type)
-                # Типы данных: целое, дробное, дата/время, строка
-                if A[cn]["data_type"] == self.DATA_TYPE__UNKNOWN:
-                    # +++++ это первая строка, тип данных ещё не был определён +++++
-                    A[cn]["data_type"] = data_type
-                    if data_type == self.DATA_TYPE__STRING:
-                        # если для текущего столбца тип данных строка - то дальше никакой конвертации выполнять не надо
-                        break
-                    else:
-                        A[cn]["items"][i] = value
-                elif data_type != A[cn]["data_type"]:
-                    convert_to = None
-                    # +++++ тип данных для столбца уже определён, но новая строка имеет другой тип данных +++++
-                    if A[cn]["data_type"] == self.DATA_TYPE__INTEGER:
-                        # +++ для предыдущих строк тип данных был определён как целое число +++
-                        if data_type == self.DATA_TYPE__FLOAT:
-                            # новый тип данных - дробное число
-                            convert_to = self.DATA_TYPE__FLOAT
-                        else:
-                            # целое -> строка (даже если определилось как дата/время)
-                            convert_to = self.DATA_TYPE__STRING
-                    elif A[cn]["data_type"] == self.DATA_TYPE__FLOAT:
-                        # +++ для предыдущих строк тип данных был определён как дробное число +++
-                        if data_type == self.DATA_TYPE__INTEGER:
-                            # среди дробных чисел встретилось одно без дробной части - привести его к дробному
-                            data_type = self.DATA_TYPE__FLOAT
-                            value = float(value)
-                        if data_type != A[cn]["data_type"]:
-                            # типы данных различаются - конвертировать в строку
-                            convert_to = self.DATA_TYPE__STRING
-                    elif A[cn]["data_type"] == self.DATA_TYPE__TIME:
-                        # +++ для предыдущих строк тип данных был определён как дата/время +++
-                        if data_type != A[cn]["data_type"]:
-                            # типы данных различаются - конвертировать в строку
-                            convert_to = self.DATA_TYPE__STRING
-                    elif A[cn]["data_type"] == self.DATA_TYPE__STRING:
-                        # +++ для предыдущих строк тип данных был определён как строка - ничего не менять +++
-                        pass
-
-                    if convert_to == self.DATA_TYPE__FLOAT:
-                        A[cn]["data_type"] = self.DATA_TYPE__FLOAT
-                        for j in range(i):
-                            A[cn]["items"][j] = float(A[cn]["items"][j])
-                    if convert_to == self.DATA_TYPE__STRING:
-                        A[cn]["data_type"] = self.DATA_TYPE__FLOAT
-                        for j in range(i):
-                            A[cn]["items"][j] = str(A[cn]["items"][j])
-
-                if data_type == A[cn]["data_type"] and data_type != self.DATA_TYPE__STRING:                    
-                    A[cn]["items"][i] = value
-        #pprint(A); exit(0)
-
-
-    def analyze__count_statistics(self, A):
-        #print(A)
-        for cn in A.keys():
-            #print(cn)
-            A[cn]["stat"] = {}
-            if A[cn]["data_type"] == self.DATA_TYPE__INTEGER or A[cn]["data_type"] == self.DATA_TYPE__FLOAT:
-                # +++ столбец с целыми или дробными числами +++
-                A[cn]["stat"]["avg"] = get_avg(A[cn]["items"])
-                A[cn]["stat"]["std_dev"] = get_std_dev(A[cn]["items"], A[cn]["stat"]["avg"])
-            if A[cn]["data_type"] == self.DATA_TYPE__INTEGER or A[cn]["data_type"] == self.DATA_TYPE__FLOAT or A[cn]["data_type"] == self.DATA_TYPE__TIME:
-                A[cn]["stat"]["min"] = min(A[cn]["items"])
-                A[cn]["stat"]["max"] = max(A[cn]["items"])
-            if A[cn]["data_type"] == self.DATA_TYPE__INTEGER or A[cn]["data_type"] == self.DATA_TYPE__TIME or A[cn]["data_type"] == self.DATA_TYPE__STRING:
-                unique_items = list(set(self.A[cn]["items"]))
-                #print(unique_items)
-                A[cn]["stat"]["unique_count"] = len(unique_items)
-                #A[cn]["stat"]["unique_values"] = {}
-                unique_stat = []
-                for u in unique_items:
-                    cnt = count_value_in_array(u, A[cn]["items"])
-                    #unique_stat[u] = cnt
-                    unique_stat.append({"value": u, "cnt": cnt})
-                #print(unique_stat);
-                unique_stat_sorted = sorted(unique_stat, key = lambda d: d["cnt"], reverse=True)
-                #print(unique_stat_sorted);
-                A[cn]["stat"]["unique_frequency_top"] = []
-                for elem in unique_stat_sorted:
-                    A[cn]["stat"]["unique_frequency_top"].append(elem)
-                    #A[cn]["stat"]["unique_frequency_top"][elem["value"]] = elem["cnt"]
-                    if self.unique_max_count > 0 and len(A[cn]["stat"]["unique_frequency_top"]) >= self.unique_max_count:
-                        break
-
-    def print_stat(self, columns = [], ignore_case: bool = False):
-        if type(columns) == type("stroka"):
-            # передан один столбец в виде строки - сконвертирвать в массив из одного элемента
-            columns = [columns]
-        if ignore_case and len(columns) > 0:
-            for i in range(len(columns)):
-                columns[i] = columns[i].lower()
-        for cn in self.A.keys():
-            #print(cn)
-            if len(columns) > 0:
-                # перечислены имена столбцов для которых нужно вывести статистику
-                cn_seek = cn
+    # ----- Добавить строку в numpy-массив -----
+    def addRow(self, parts, ignore_case = False, comma_to_dots = False):
+        if self.used_rows_count == self.reserved_rows_count:
+            # таблица заполнена полностью, увеличить количество строк в таблице
+            self.reserved_rows_count = 1 + int(self.reserved_rows_count * 1.5)
+            self.data.resize((self.reserved_rows_count, len(self.columns)), refcheck = False)
+            #print("reserved_rows_count:", self.reserved_rows_count)
+        i = self.used_rows_count
+        for j in range(len(self.columns)):
+            c = self.columns[j]
+            s = parts[ c["src_number"] ]
+            if c["kind"] == NPCOLUMN_KIND__SIMPLE:
+                # +++ kind=simple - дробное число как есть (но, возможно, с заменой запятой на точку) +++
+                if comma_to_dots:
+                    s = s.replace(",", ".")
+                self.data[i][j] = float(s)
+            elif c["kind"] == NPCOLUMN_KIND__OHE:
+                # +++ kind=OHE - только в одном из столбцов будет установлено значение +++
                 if ignore_case:
-                    cn_seek = cn_seek.lower()
-                if not cn_seek in columns:
-                    # текущий столбец не находится в списке столбцов для которых нужно вывести статистику
+                    s = s.lower()
+                for possible_value in c["values"]:
+                    if ignore_case:
+                        possible_value = possible_value.lower()
+                    if s == possible_value:
+                        self.data[i][j] = self.OHE_when_matched
+                    else:
+                        self.data[i][j] = self.OHE_when_missed
+            elif c["kind"] == NPCOLUMN_KIND__MAPPING:
+                # +++ kind=mapping - заменить одно значение на другое (строку заменить на дробное число) +++
+                found = False
+                if ignore_case:
+                    s = s.lower()
+                    for key in c["mappings"].keys():
+                        if s == key.lower():
+                            self.data[i][j] = c["mappings"][key]
+                            found = True
+                            break
+                else:
+                    if s in c["mappings"]:
+                        found = True
+                        self.data[i][j] = c["mappings"][s]
+                if not found and c["unmapped"] != None:
+                    self.data[i][j] = c["unmapped"]
+        self.used_rows_count += 1
+
+    def dumpData(self, filename, delimiter, digits_after_dot = 8):
+        with open(filename, "wt") as f:
+            rows_count = len(self.data)
+            columns_count = len(self.columns)
+            f.write("SN")
+            for j in range(columns_count):
+                f.write(delimiter + self.columns[j]["dst_name"])
+            f.write("\n")
+            for i in range(rows_count):
+                f.write(str(i) + ")")
+                for j in range(columns_count):
+                    f.write(delimiter + "{:.3f}" . format(self.data[i][j]))
+                f.write("\n")
+
+# --- end of class _RT_NPContainer ---
+
+class _RT_AnalysisContainer:
+
+    def __init__(self) -> None:
+        self.columns = []
+        self.data = {}
+        self.histogramMaxCharsCount = 50 # сколько символов в длину строчка визуализирующая максимальное значение гистограммы
+        self.histogramChar = "X"
+
+    def addColumn(
+        self,
+        src_name,
+        most_frequent_count = 10,
+        procentiles = [0.1, 0.25, 0.5, 0.75, 0.9],
+        histogramBarsCount = 11, # 0 - не строить гистограмму для этого столбца
+    ):
+        self.columns.append({
+            "src_name": src_name,
+            "src_number": None,
+            "data_type": DATA_TYPE__STRING,
+            "most_frequent_count": most_frequent_count,
+            "procentiles": procentiles,
+            "histogramBarsCount": histogramBarsCount,
+            "stat": None # статистика ещё не подсчитывалась; будет создан OrderedDict со статистиками
+        })
+        self.data[src_name] = []
+
+    # ----- Добавить строку данных для последующего анализа -----
+    def addRow(self, parts):
+        for c in self.columns:
+            self.data[ c["src_name"] ].append( parts[ c["src_number"] ] )
+            #columnName = c["src_name"]
+            #columnNumber = c["src_number"]
+            #self.data[columnName].append(parts[columnNumber])
+
+    # ----- Произвести анализ прочитанных данных -----
+    def Analyze(self, columns, comma_to_dots:bool):
+        for c in self.columns:
+            if len(columns) != 0:
+                if c["src_name"] not in columns:
+                    # указаны анализируемые столбцы и текущий столбец не присутствует в списке анализируемых - пропустить этот столбец
                     continue
-            # +++ вывести статистику для столбца с именем cn +++
-            print("------- Statistic for column \"{}\" -------" . format(cn))
-            data_type = "unknown"
-            if self.A[cn]["data_type"] == self.DATA_TYPE__INTEGER:
-                data_type = "integer"
-            elif self.A[cn]["data_type"] == self.DATA_TYPE__FLOAT:
-                data_type = "float"
-            elif self.A[cn]["data_type"] == self.DATA_TYPE__TIME:
-                data_type = "date/time"
-            elif self.A[cn]["data_type"] == self.DATA_TYPE__STRING:
-                data_type = "string"
-            print("  data_type:", data_type)
-            if self.A[cn]["data_type"] == self.DATA_TYPE__INTEGER or self.A[cn]["data_type"] == self.DATA_TYPE__FLOAT or self.A[cn]["data_type"] == self.DATA_TYPE__TIME:
-                print("  min:", self.A[cn]["stat"]["min"])
-                print("  max:", self.A[cn]["stat"]["max"])
-            if self.A[cn]["data_type"] == self.DATA_TYPE__INTEGER or self.A[cn]["data_type"] == self.DATA_TYPE__FLOAT:
-                print("  avg:", self.A[cn]["stat"]["avg"])
-                print("  std_dev:", self.A[cn]["stat"]["std_dev"])
-            if self.A[cn]["data_type"] == self.DATA_TYPE__INTEGER or self.A[cn]["data_type"] == self.DATA_TYPE__TIME or self.A[cn]["data_type"] == self.DATA_TYPE__STRING:
-                print("  unique count:", self.A[cn]["stat"]["unique_count"])
-                #for key in self.A[cn]["stat"]["unique_frequency_top"]
-                for i in range(len(self.A[cn]["stat"]["unique_frequency_top"])):
-                    msg = "    "
-                    msg += str(i+1) + ")"
-                    msg += " " + str(self.A[cn]["stat"]["unique_frequency_top"][i]["value"])
-                    msg += ": " + str(self.A[cn]["stat"]["unique_frequency_top"][i]["cnt"])
-                    print(msg)
+            new_data_type = detectDataTypeForList(self.data[ c["src_name"] ], comma_to_dots)
+            if new_data_type != c["data_type"]:
+                c["data_type"] = new_data_type
+                convertListToDataType(self.data[ c["src_name"] ], new_data_type, comma_to_dots)
+            self.countStatistics(c, self.data[ c["src_name"] ])
 
-            print("")
-    
+    # ----- Подсчёт статистик соответствующих типу данных -----
+    def countStatistics(self, c, items):
+        #for c in self.items.keys():
+        #for i in range(len(self.columns)):
+        c["stat"] = OrderedDict()
+        c["stat"]["count"] = len(items)
+        if c["data_type"] == DATA_TYPE__INTEGER:
+            calcNumericStatistics(   items, c["stat"])
+            calcProcentiles(         items, c["stat"], c["procentiles"])
+            calcEnumeratedStatistics(items, c["stat"], c["most_frequent_count"])
+            if c["histogramBarsCount"] > 0:
+                c["stat"]["histogram"]       = calcHistogram(items, c["histogramBarsCount"])
+                c["stat"]["histogram_chars"] = charsHistogram(c["stat"]["histogram"], self.histogramMaxCharsCount, self.histogramChar)
+        elif c["data_type"] == DATA_TYPE__FLOAT:
+            calcNumericStatistics(   items, c["stat"])
+            calcProcentiles(         items, c["stat"], c["procentiles"])
+            if c["histogramBarsCount"] > 0:
+                c["stat"]["histogram"]       = calcHistogram(items, c["histogramBarsCount"])
+                c["stat"]["histogram_chars"] = charsHistogram(c["stat"]["histogram"], self.histogramMaxCharsCount, self.histogramChar)
+        elif c["data_type"] == DATA_TYPE__TIME:
+            c["stat"]["min"] = min(items)
+            c["stat"]["max"] = max(items)
+            calcProcentiles(         items, c["stat"], c["procentiles"])
+            calcEnumeratedStatistics(items, c["stat"], c["most_frequent_count"])
+            if c["histogramBarsCount"] > 0:
+                c["stat"]["histogram"]       = calcHistogram(items, c["histogramBarsCount"])
+                c["stat"]["histogram_chars"] = charsHistogram(c["stat"]["histogram"], self.histogramMaxCharsCount, self.histogramChar)
+        elif c["data_type"] == DATA_TYPE__STRING:
+            c["stat"]["longest"] = getLongestString(items)
+            c["stat"]["longest_length"] = len(c["stat"]["longest"])
+            calcEnumeratedStatistics(items, c["stat"], c["most_frequent_count"])
 
-    def _read(
-            self,
-            files_list,
-            header_only = False, # только прочитать заголовок и сразу завершить работу
-            AnalyzeColumns = None, # проанализировать эти столбцы (среднее, разброс для числе, количество для строк и т.д.)
-            XColumns = None, 
-            YColumns = None
 
-    ) -> None:
-        for filename in files_list:
-            print("-----", filename, "-----")
-            f = open(filename, "rt")
-            self.header.clear()
-            AColumnsNumbs = None
-            XColumnsSpecs = None
-            YColumnsSpecs = None
-            file_line_number = 0
-            for s in f:
-                file_line_number += 1
-                s = s.strip()
-                if s[0] == self.comment_symbol:
-                    continue # если первыми символом символ комментария - пропустить строку
-                #s = remove_comment(s, self.comment_sequence)
-                #if len(s) == 0:
-                #    continue # пустая строка
+# --- end of class _RT_AnalysisContainer ---
 
+class ReadTable:
+
+    def __init__(self, delimiter = ",", comment = "#", ignore_case = False, comma_to_dots = False) -> None:
+        self.delimiter = delimiter
+        self.comment = comment
+        self.ignore_case = ignore_case  # игнорировать регистр при сравнении строк
+        self.comma_to_dots = comma_to_dots  # заменять запятые на точки (полезно при получении данных из экселя)
+        self.NPs = {} # словарь, в котором ключ - имя (X, Y, XTtest, YTrain, ...; значение - объект класса _RT_NPContainer)
+        self.A = _RT_AnalysisContainer()
+        self.checkStringFunction = None
+        self.checkPartsFunction = None
+        self.ignore_wrong_columns = False # игнорировать ли строки, где неправильное количество столбцов или вызывать исключение
+        self.default_np_datatype = np.float64
+        self.default_np_rows_count = 1024
+        #self.A = {
+        #    "columns": [],
+        #    "items": {}        
+        #}
+        #self.items = {}
+        #self.AnalyzeColumns = {}
+        #self.AnalyzeItems = {}
+
+    def addNPContainer(self, name):
+        if not name in self.NPs:
+            self.NPs[name] = _RT_NPContainer()
+
+    def copyColumns(self, src_name, dst_name):
+        if not src_name in self.NPs:
+            msg = "Cannot find source NP-container [{}]" . format(src_name)
+            raise Exception(msg)
+        if not dst_name in self.NPs:
+            self.NPs[dst_name] = _RT_NPContainer()
+            #for c in self.NPs[src_name].columns:
+        self.NPs[dst_name].columns = self.NPs[src_name].columns.copy()
+        #pprint(self.NPs[dst_name].columns)
+
+    def getContainersList(self):
+        return self.NPs.keys()
+
+    def printAnalyzedColumns(self):
+        for key in self.A.keys():
+            print("-------------- " + key + " (" + self.A[key]["data_type"] + ")" + "----------------")
+            pprint(self.A[key]["stat"])
+            print("-------------------------------------------")
+
+    def resetSrcNumbers(self, columns):
+        for c in columns:
+            c["src_number"] = -1
+
+    def setSrcNumbers(self, columns):
+        for c in columns:
+            src_name = c["src_name"]
+            if self.ignore_case:
+                src_name = src_name.lower()
+            for j in range(len(self.header)):
+                h = self.header[j]
+                if self.ignore_case:
+                    h = h.lower()
+                if src_name == h:
+                    c["src_number"] = j
+                    break
+        # проверить, что для всех столбцов определён номер столбца в исходном файле
+        for c in columns:
+            if c["src_number"] < 0:
+                msg = "Cannot find column [{}]." . format(c["src_name"])
+                raise Exception(msg)
+
+
+    def read(
+        self,
+        filename,
+        header_only = False,
+        analyze_all_columns = False,
+        encoding = "utf-8"
+    ):
+        self.header = []
+        for key in self.NPs.keys():
+            self.resetSrcNumbers(self.NPs[key].columns)
+            if self.NPs[key].data == None:
+                # память для numpy-массива ещё не выделялась
+                self.NPs[key].allocateMemory(self.default_np_rows_count, dtype=self.default_np_datatype)
+        self.resetSrcNumbers(self.A.columns)
+        raw_line_number = 0
+        with open(filename, "rt", encoding=encoding) as f:
+            for s_raw in f:
+                raw_line_number += 1
+                #s_raw = s_raw.rstrip() # удалить перевод строки (\r, \n)
+                while len(s_raw) > 0 and s_raw[-1] in ["\r", "\n"]:
+                    # удалить переводы строк
+                    s_raw = s_raw[0:len(s_raw)-1]
+                s = remove_comment(s_raw, self.comment)
+                if self.checkStringFunction != None:
+                    # указана пользовательская функция для предварительной обработки строки из файла
+                    s = self.checkStringFunction(s)
+                if len(s) == 0:
+                    continue
                 parts = s.split(self.delimiter)
+                if self.checkPartsFunction != None:
+                    # указана пользовательская функция для предварительной обработки поделённой на элементы строки из файла
+                    self.checkPartsFunction(parts)
                 if len(parts) == 0:
                     continue
 
-                #print(s, parts)
-
+                #print(raw_line_number, s, "\t|||\t", parts)
                 if len(self.header) == 0:
-                    # +++ для текущего файла заголовок ещё не был прочитан +++
+                    # +++ читается заголовок +++
                     self.header = parts.copy()
+                    #print("H:", self.header)
                     if header_only:
                         return
-
-                    if AnalyzeColumns != None:
-                        AnalyzeColumnsNumbs = get_columns_numbers(self.header, AnalyzeColumns, self.header__ignore_case)
-                        #print(AnalyzeColumnsNumbs); exit(0)
-                        self.A = {}
-                        for ci in AnalyzeColumnsNumbs:
-                            cn = self.header[ci]
-                            self.A[cn] = {
-                                "data_type": self.DATA_TYPE__UNKNOWN,
-                                "items": []
-                            }
-                        #print(self.A); exit(0)
-                    if XColumns != None:
-                        XColumnsSpecs = parse_columns_specifications(XColumns, self.header, self.header__ignore_case)
-                        self.XNames.clear()
-                        for spec in XColumnsSpecs:
-                            self.XNames.append(spec["dst_column_name"])
-                        if self.X == None:
-                            self.X = np.zeros((self.NP__DEFAULT_ROWS_COUNT, len(XColumnsSpecs)), dtype=self.np__dtype)
-                            self.np__x_reserved_count = self.NP__DEFAULT_ROWS_COUNT
-                    if YColumns != None:
-                        YColumnsSpecs = parse_columns_specifications(YColumns, self.header, self.header__ignore_case)
-                        self.YNames.clear()
-                        for spec in YColumnsSpecs:
-                            self.YNames.append(spec["dst_column_name"])
-                        if self.Y == None:
-                            self.Y = np.zeros((self.NP__DEFAULT_ROWS_COUNT, len(YColumnsSpecs)), dtype=self.np__dtype)
-                            self.np__y_reserved_count = self.NP__DEFAULT_ROWS_COUNT
-                    # завершили обработку строки с заголовком
+                    for key in self.NPs.keys():
+                        self.setSrcNumbers(self.NPs[key].columns)
+                    if len(self.A.columns) == 0 and analyze_all_columns:
+                        for h in self.header:
+                            self.A.addColumn(h)
+                    self.setSrcNumbers(self.A.columns)
                     continue
-                # +++ заголовок текущего файла уже был прочитан, читается строка с данными +++
+                # +++ читается строка с данными +++
                 if len(parts) != len(self.header):
-                    # различается количество столбцов в строке с данными и в заголовке файла
-                    msg = "For line #{} number of columns={} <> size of header={}" . format(file_line_number, len(parts), len(self.header))
-                    if self.ignore_bad:
-                        # игнорировать строки с ошибками
-                        if self.print_warnings:
-                            print("WARNING!", msg)
+                    if self.ignore_wrong_columns:
+                        # пропускать строки с неправильным количеством столбцов
                         continue
                     else:
-                        # останавливаться при возникновении ошибки
+                        # строки с неправильным количеством столбцов генерируют ошибку
+                        msg = "Wrong columns count ({}) for line #{} [{}]" . format(len(parts), raw_line_number, s_raw)
                         raise Exception(msg)
+                for key in self.NPs.keys():
+                    if self.NPs[key].checkPartsFunction == None:
+                        # не указаа функция трансформации поделённой на элементы строки
+                        self.NPs[key].addRow(parts, self.ignore_case, self.comma_to_dots)
+                    else:
+                        # выполнить трансформацию для массива элементов, если массив останется не пустым, тогда добавлять в текущий numpy-массив
+                        parts_cp = parts.copy()
+                        self.NPs[key].checkPartsFunction(parts_cp)
+                        if len(parts_cp) > 0:
+                            self.NPs[key].addRow(parts_cp, self.ignore_case, self.comma_to_dots)
+                if len(self.A.columns) > 0:
+                    self.A.addRow(parts)
 
-                # количество столбцов с данными совпадает с количеством столбцов в заголовке
-                if AnalyzeColumns != None:
-                    # анализ данных, но сами данные тоже добавляются
-                    self.add_to_analyze(AnalyzeColumnsNumbs, parts, self.A)
-                if XColumns != None:
-                    # добавить строку в numpy-массив X[]
-                    self.add_to_numpy(XColumnsSpecs, parts, self.X, self.np__x_fact_count)
-                    self.np__x_fact_count += 1
-                    if self.np__x_fact_count == self.np__x_reserved_count:
-                        self.np__x_reserved_count = int(self.np__reservation_increment * self.np__x_reserved_count)
-                        self.X.resize((self.np__x_reserved_count, len(XColumnsSpecs)), refcheck=False)
-                if YColumns != None:
-                    # добавить строку в numpy-массив Y[]
-                    self.add_to_numpy(YColumnsSpecs, parts, self.Y, self.np__y_fact_count)
-                    self.np__y_fact_count += 1
-                    if self.np__y_fact_count == self.np__y_reserved_count:
-                        self.np__y_reserved_count = int(self.np__reservation_increment * self.np__y_reserved_count)
-                        self.Y.resize((self.np__y_reserved_count, len(YColumnsSpecs)), refcheck=False)
+        for key in self.NPs.keys():
+            self.NPs[key].trimUnusedRows()
+    # --- end of read-function ---
+            
+    def Analyze(self, columns = []):
+        self.A.Analyze(columns, self.comma_to_dots)
+                    
 
-                
+# --- end of class ReadTable ---
+
+"""s1 = "  abc 123  "
+s2 = s1.rstrip()
+print("[{}]" . format(s2))
+exit(0  )"""
+
+def checkString1(s:str) -> str:
+    seek_str = "2022,11,"
+    replace_to = "2010-11-"
+    p1 = s.find(seek_str)
+    if p1 >= 0:
+        p2 = p1 + len(seek_str)
+        s1 = s[0:p1]
+        s2 = s[p2:len(s)]
+        s = s1 + replace_to + s2
+    return s
+
+# ----- На основе года определить, являются ли данные для обучения или для проверки -----
+def isTestData(s:str) -> bool:
+    return s[0:4] == "2024"
+
+#print(isTestData("2022.01")); print(isTestData("2023.01")); print(isTestData("2024.01")); print(isTestData("2025.01")); exit(0)
+
+# ----- Оставить в массиве данные, если в нём данные для обучения -----
+def checkParts_Train(parts):
+    forTesting = isTestData(parts[3])
+    if forTesting:
+        parts.clear()
+    else:
+        pass
+
+# ----- Оставить в массиве данные, если в нём данные для проверки -----
+def checkParts_Test(parts):
+    forTesting = isTestData(parts[3])
+    if forTesting:
+        pass
+    else:
+        parts.clear()
 
 
-            f.close()
+#s1 = "qqw2022,11,31abc"
+#s2 = checkString1(s1)
+#print(s2)
+#exit(0)
 
-            #print("header:", self.header)
-            #print("XColumnsNumbers:", XColumnsNumbers)
-            #print("YColumnsNumbers:", YColumnsNumbers)
-        if XColumns != None:
-            if self.np__x_fact_count != self.np__x_reserved_count:
-                # прочитано строк меньше, чем зарезервировано в памяти
-                self.X.resize((self.np__x_fact_count, len(XColumnsSpecs)), refcheck=False)
-                pass
-        if YColumns != None:
-            if self.np__y_fact_count != self.np__y_reserved_count:
-                # прочитано строк меньше, чем зарезервировано в памяти
-                self.Y.resize((self.np__y_fact_count, len(YColumnsSpecs)), refcheck=False)
-                pass
-        if AnalyzeColumns != None:
-            self.analyze__data_types(self.A)
-            self.analyze__count_statistics(self.A)
+def real1():
+    filename = "C:\\Users\\masha\\AppData\\Roaming\\MetaQuotes\\Terminal\\9EB2973C469D24060397BB5158EA73A5\\MQL5\\Files\\NNExport1_H1_incr=1x24x5_smth=3x1(5).xls"
+    rt = ReadTable("\t", ";")
+    rt.read(filename, encoding="cp1251", analyze_all_columns=True)
+    rt.Analyze()
+    print("--- A ---")
+    pprint(rt.A.columns)
+    print("--- end of A ---")
+    exit(0)
 
-    def get_header(self, filename):
-        files_list = [filename]
-        self._read(files_list, header_only=True)
-        return self.header.copy()
+def real2():
+    filename = "C:\\Users\\masha\\AppData\\Roaming\\MetaQuotes\\Terminal\\9EB2973C469D24060397BB5158EA73A5\\MQL5\\Files\\NNExport1_H1_incr=1x24x5_smth=3x1(5).xls"
+    rt = ReadTable("\t", ";")
+    rt.addNPContainer("X")
+
+    rt.NPs["X"].addColumn_Numeric("Small#1")
+    rt.NPs["X"].addColumn_Numeric("Small#2")
+    rt.NPs["X"].addColumn_Numeric("Small#3")
+    rt.NPs["X"].addColumn_Numeric("Small#5")
+    rt.NPs["X"].addColumn_Numeric("Small#8")
+    rt.NPs["X"].addColumn_Numeric("Small#13")
+    rt.NPs["X"].addColumn_Numeric("Small#21")
+    rt.NPs["X"].addColumn_Numeric("Small#34")
+    rt.NPs["X"].addColumn_Numeric("Small#55")
+    rt.NPs["X"].addColumn_Numeric("Small#89")
+    rt.NPs["X"].addColumn_Numeric("Small#144")
     
+    rt.NPs["X"].addColumn_Numeric("Main#1")
+    rt.NPs["X"].addColumn_Numeric("Main#2")
+    rt.NPs["X"].addColumn_Numeric("Main#3")
+    rt.NPs["X"].addColumn_Numeric("Main#5")
+    rt.NPs["X"].addColumn_Numeric("Main#8")
+    rt.NPs["X"].addColumn_Numeric("Main#13")
+    rt.NPs["X"].addColumn_Numeric("Main#21")
+    rt.NPs["X"].addColumn_Numeric("Main#34")
+    rt.NPs["X"].addColumn_Numeric("Main#55")
+    rt.NPs["X"].addColumn_Numeric("Main#89")
+    rt.NPs["X"].addColumn_Numeric("Main#144")
+    
+    rt.NPs["X"].addColumn_Numeric("Big#1")
+    rt.NPs["X"].addColumn_Numeric("Big#2")
+    rt.NPs["X"].addColumn_Numeric("Big#3")
+    rt.NPs["X"].addColumn_Numeric("Big#5")
+    rt.NPs["X"].addColumn_Numeric("Big#8")
+    rt.NPs["X"].addColumn_Numeric("Big#13")
+    rt.NPs["X"].addColumn_Numeric("Big#21")
+    rt.NPs["X"].addColumn_Numeric("Big#34")
+    rt.NPs["X"].addColumn_Numeric("Big#55")
+    rt.NPs["X"].addColumn_Numeric("Big#89")
+    rt.NPs["X"].addColumn_Numeric("Big#144")
 
-    def rename_X_column(self, old_name:str, new_new:str) -> None:
-        self._rename_column("x", old_name, new_new)
+    rt.read(filename, encoding="cp1251", analyze_all_columns=True)
+    pprint(rt.NPs["X"].data)
+    exit(0)
 
-    def rename_Y_column(self, old_name:str, new_new:str) -> None:
-        self._rename_column("y", old_name, new_new)
+def real3(filename = "C:\\Users\\masha\\AppData\\Roaming\\MetaQuotes\\Terminal\\9EB2973C469D24060397BB5158EA73A5\\MQL5\\Files\\NNExport1_H1_1x3-24x2-5x1-1_AUDCAD.xls"):
+    rt = ReadTable("\t", ";", comma_to_dots=True)
+    #rt.checkStringFunction = checkString1
+    # +++ X +++
+    rt.addNPContainer("X_train")
 
-    def _rename_column(self, table_name: str, old_name: str, new_name: str) -> None:
-        if self.header__ignore_case:
-            old_name = old_name.lower()
-        if table_name.lower() == "x":
-            for i in range(len(self.XNames)):
-                c = self.XNames[i]
-                if self.header__ignore_case:
-                    c = c.lower()
-                if c == old_name:
-                    self.XNames[i] = new_name
-        elif table_name.lower() == "y":
-            for i in range(len(self.YNames)):
-                c = self.YNames[i]
-                if self.header__ignore_case:
-                    c = c.lower()
-                if c == old_name:
-                    self.YNames[i] = new_name
+    rt.NPs["X_train"].addColumn_Numeric("Small#1")
+    rt.NPs["X_train"].addColumn_Numeric("Small#2")
+    rt.NPs["X_train"].addColumn_Numeric("Small#3")
+    rt.NPs["X_train"].addColumn_Numeric("Small#5")
+    rt.NPs["X_train"].addColumn_Numeric("Small#8")
+    rt.NPs["X_train"].addColumn_Numeric("Small#13")
+    rt.NPs["X_train"].addColumn_Numeric("Small#21")
+    rt.NPs["X_train"].addColumn_Numeric("Small#34")
+    rt.NPs["X_train"].addColumn_Numeric("Small#55")
+    rt.NPs["X_train"].addColumn_Numeric("Small#89")
+    rt.NPs["X_train"].addColumn_Numeric("Small#144")
+    
+    rt.NPs["X_train"].addColumn_Numeric("Main#1")
+    rt.NPs["X_train"].addColumn_Numeric("Main#2")
+    rt.NPs["X_train"].addColumn_Numeric("Main#3")
+    rt.NPs["X_train"].addColumn_Numeric("Main#5")
+    rt.NPs["X_train"].addColumn_Numeric("Main#8")
+    rt.NPs["X_train"].addColumn_Numeric("Main#13")
+    rt.NPs["X_train"].addColumn_Numeric("Main#21")
+    rt.NPs["X_train"].addColumn_Numeric("Main#34")
+    rt.NPs["X_train"].addColumn_Numeric("Main#55")
+    rt.NPs["X_train"].addColumn_Numeric("Main#89")
+    rt.NPs["X_train"].addColumn_Numeric("Main#144")
+    
+    rt.NPs["X_train"].addColumn_Numeric("Big#1")
+    rt.NPs["X_train"].addColumn_Numeric("Big#2")
+    rt.NPs["X_train"].addColumn_Numeric("Big#3")
+    rt.NPs["X_train"].addColumn_Numeric("Big#5")
+    rt.NPs["X_train"].addColumn_Numeric("Big#8")
+    rt.NPs["X_train"].addColumn_Numeric("Big#13")
+    rt.NPs["X_train"].addColumn_Numeric("Big#21")
+    rt.NPs["X_train"].addColumn_Numeric("Big#34")
+    rt.NPs["X_train"].addColumn_Numeric("Big#55")
+    rt.NPs["X_train"].addColumn_Numeric("Big#89")
+    rt.NPs["X_train"].addColumn_Numeric("Big#144")
 
+    rt.copyColumns("X_train", "X_test")
+    rt.NPs["X_train"].checkPartsFunction = checkParts_Train
+    rt.NPs["X_test"].checkPartsFunction = checkParts_Test
 
-def np_test1():
-    rows_count = 5
-    columns_count = 2
-    A = np.zeros((rows_count, columns_count), dtype=np.float32)
-    sn = 0
-    for i in range(rows_count):
-        for j in range(columns_count):
-            sn += 1
-            A[i][j] = sn
-    A.resize((rows_count+1, columns_count), refcheck=False)
-    print(A)
+    # +++ Y +++
+    rt.addNPContainer("Y_train")
+    rt.NPs["Y_train"].addColumn_OHE("TrendSign", "TrendUp", ["BUY"])
+    rt.NPs["Y_train"].addColumn_OHE("TrendSign", "TrendFlat", ["NONE"])
+    rt.NPs["Y_train"].addColumn_OHE("TrendSign", "TrendDown", ["SELL"])
+    rt.copyColumns("Y_train", "Y_test")
+    rt.NPs["Y_train"].checkPartsFunction = checkParts_Train
+    rt.NPs["Y_test"].checkPartsFunction = checkParts_Test
 
+    #rt.read(filename, analyze_all_columns=True); rt.Analyze(); pprint(rt.A.columns)
+    rt.read(filename)
+    #rt.NPs["Y_train"].dumpData("c:\\python\\y_train.tsv", "\t")
+    #rt.NPs["Y_test"].dumpData("c:\\python\\y_test.tsv", "\t")
+
+    # +++ sklearn +++
+    from sklearn.neural_network import MLPClassifier
+    from sklearn.datasets import make_classification
+    from sklearn.model_selection import train_test_split
+
+    X_train = rt.NPs["X_train"].data
+    Y_train = rt.NPs["Y_train"].data
+    X_test = rt.NPs["X_test"].data
+    Y_test = rt.NPs["Y_test"].data
+    #X, y = make_classification(n_samples=100, random_state=1)
+    #X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=1)
+
+    # activation{‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default=’relu’
+    # solver{‘lbfgs’, ‘sgd’, ‘adam’}, default=’adam’
+    clf = MLPClassifier(
+        hidden_layer_sizes = (50, ),
+        random_state = 1,
+        max_iter = 5000,
+        activation = "tanh",
+        solver = "adam",
+        verbose = True
+    )
+    clf.fit(X_train, Y_train)
+
+    r1 = clf.predict_proba(X_test)
+    print(r1)
+
+    r2 = clf.predict(X_test)
+    print(r2)
+    
+    r3 = clf.score(X_test, Y_test)
+    print(r3)
+    #clf.predict_proba(X_test[:1])
+    #clf.predict(X_test[:5, :])
+    #array([1, 0, 1, 0, 1])
+    #clf.score(X_test, y_test)
+    #0.8...
+
+    import pickle
+    p = open("c:\\python\\1.pickle", "wb")
+    pickle.dump(clf, p)
+    p.close()
+    # save the model 
+    #filename = 'linear_model.sav'
+    #pickle.dump(regressor, open(filename, 'wb')) 
+
+    exit(0)
+
+def use1():
+    import pickle
+    #p = open("c:\\python\\1.pickle", "rb")
+    # load the model 
+    filename = "c:\\python\\1.pickle"
+    load_model = pickle.load(open(filename, 'rb'))
+
+    y_pred = load_model.predict(X_test) 
+    print('root mean squared error : ', np.sqrt( metrics.mean_squared_error(y_test, y_pred)))
+    
 if __name__ == "__main__":
-    #np_test1(); exit(0)
+    #real1()
+    #real2()
+    real3()
+    rt = ReadTable("\t", ";", True)
 
-    #rt1 = ReadTable("\t", "#")
-    rt1 = ReadTable()
-    rt1.header__ignore_case = True
-    rt1.comma_to_dots = True
-    files_list = ["G:\\sources\\python\\ml\\_modules\\ReadTable3\\file1.txt"]
-    XColumns = ["stoch\:13x5x3", "pclose"]
-    YColumns = ["Trend:OHE:sell,bear,down;flat;buy,bull,up"]
+    print("--- X ---")
+    rt.addNPContainer("X")
+    rt.NPs["X"].addColumn_Numeric("PClose", "ClsPrc")
+    rt.NPs["X"].addColumn_Numeric("Stoch:13x5x3", "Stoch")
+    rt.NPs["X"].addColumn_Mapping("dow", "dowNumb", {
+        "mon": 1,
+        "tue": 2,
+        "web": 3,
+        "thu": 4,
+        "fri": 5,
+        "sat": 6,
+        "sun": 7
+    })
+    pprint(rt.NPs["X"].columns)
 
-    # header = rt1.get_header(files_list[0]); print("header:", header); exit(0)
+    print("--- Y ---")
+    rt.addNPContainer("Y")
+    rt.NPs["Y"].addColumn_OHE("Trend", "TrendUp", ["+1", "buy", "up"])
+    rt.NPs["Y"].addColumn_OHE("Trend", "TrendFlat", ["0", "flat"])
+    rt.NPs["Y"].addColumn_OHE("Trend", "TrendDown", ["-1", "sell", "down"])
+    pprint(rt.NPs["Y"].columns)
 
-    rt1._read(files_list, XColumns=XColumns, YColumns=YColumns)
+    #print("--- A ---")
+    #rt.A.addColumn("POpen")
+    #rt.A.addColumn("PClose", procentiles=[])
+    #pprint(rt.A.columns)
 
-    #print(rt1)
-    print("X:", rt1.X)
-    print("Y:", rt1.Y)
-    print("XNames:", rt1.XNames)
-    print("YNames:", rt1.YNames)
+    rt.read("file1.txt", encoding="iso8859", analyze_all_columns=True)
 
-    rt1.rename_Y_column("Trend=sell,bear,down", "TrendDown")
-    rt1.rename_Y_column("Trend=flat", "TrendFlat")
-    rt1.rename_Y_column("Trend=buy,bull,up", "TrendUp")
-    print("YNames:", rt1.YNames)
+    print("--- XData ---")
+    pprint(rt.NPs["X"].data)
 
-    print("header:", rt1.header)
-    rt1._read(files_list, AnalyzeColumns=["DateTime", "PClose", "stoch:13x5x3", "Trend"])
-    #pprint(rt1.A)
-    rt1.print_stat("Trend")
+    print("--- AData ---")
+    pprint(rt.A.data)
 
-    #print("XColumnsSpecs:", rt1.XColumnsSpecs)
+    rt.Analyze()
+    print("--- A ---")
+    pprint(rt.A.columns)
+    print("--- end of A ---")
+
+    exit(0)
+
+    rt.addNPColumn_Numeric("X", "POpen", "POpen")
+    rt.addNPColumn_Numeric("X", "PClose", "PClose")
+    rt.addNPColumn_Mapping("X", "dow", "dowNumb", {
+        "mon": 1,
+        "tue": 2,
+        "web": 3,
+        "thu": 4,
+        "fri": 5,
+        "sat": 6,
+        "sun": 7
+    })
+
+    rt.addNPColumn_OHE("Y", "Trend", "TrendUp", ["+1", "buy", "up"])
+    rt.addNPColumn_OHE("Y", "Trend", "TrendFlat", ["0", "flat"])
+    rt.addNPColumn_OHE("Y", "Trend", "TrendDown", ["-1", "sell", "down"])
+
+    rt.analyzeColumn("POpen")
+    rt.analyzeColumn("PClose")
+
+    rt.read("file1.txt")
+
+    print("--- XColumns: ---")
+    #pprint(rt.NPs["X"].columns)
+    pprint(rt.NPs["X"]["columns"])
+    print("--- YColumns: ---")
+    #pprint(rt.NPs["Y"].columns)
+    pprint(rt.NPs["Y"]["columns"])
+    print("--- AColumns: ---")
+    pprint(rt.A)
+    #rt.printAnalyzedColumns()
