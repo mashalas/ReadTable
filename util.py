@@ -9,9 +9,10 @@ DATA_TYPE__DATE_TIME = "t"
 DATA_TYPE__BOOLEAN = "b"
 DATA_TYPE__STRING = "s"
 DATA_TYPE__UNKNOWN = "?"
+DATA_TYPE__AUTO = "a"
 
-TRUE_VALUES  = ["1", "+", "yes", "true", "on"]
-FALSE_VALUES = ["0", "-", "no",  "false", "off"]
+TRUE_VALUES  = ["+", "yes", "true",  "on" ] # строковые значения должны быть в нижнем регистре, проверяемая строка переводится в нижний регистр
+FALSE_VALUES = ["-", "no",  "false", "off"] # строковые значения должны быть в нижнем регистре, проверяемая строка переводится в нижний регистр
 
 # ----- удалить комментарий -----
 def remove_comment(s, comment_sequence):
@@ -20,6 +21,7 @@ def remove_comment(s, comment_sequence):
         s = s[0:p]
     s = s.strip()
     return s
+
 
 # ----- Попытаться преобразовать строку к дробному числу (при ошибке - None) -----
 # ----- comma_to_dots: когда True - заменить запятую на точку перед конвертацией -----
@@ -230,53 +232,136 @@ def detect_data_type_for_string(s:str, comma_to_dots:bool) -> str:
     return DATA_TYPE__STRING
 
 
-def detect_data_type(data, column_name_or_number = None, comma_to_dots = False):
-    # входные данные могут быть:
-    #  * одномерный массив
-    #  * двумерный массив, в котором каждый элемент - строка, в этом случае требуется указания номера анализируемого столбца
-    #  * словарь, в котором значения ключей - одномерные массивы, в этом случае требуется указания имени анализируемого столбца
-
+# ----- Для одномерного массива строк  определить тип данных, к которому относятся значения этого массива -----
+def detect_data_type_for_array(data, comma_to_dots = False):
     result = DATA_TYPE__UNKNOWN
-    if type(column_name_or_number) == type("abc"):
-        # указано имя столбца
-        result = detect_data_type(data[column_name_or_number])
-    elif type(column_name_or_number) == type(123):
-        # указан номер столбца
-        vector = []
-        for row in data:
-            vector.append(row[column_name_or_number])
-        result = detect_data_type(vector)
-        vector = None
+    for s in data:
+        current = detect_data_type_for_string(s, comma_to_dots)
+        if result == DATA_TYPE__UNKNOWN:
+            # первый элемент
+            result = current
+        elif result == DATA_TYPE__INTEGER:
+            # пока тип данных определён как целое число
+            if current == DATA_TYPE__FLOAT:
+                result = DATA_TYPE__FLOAT
+            if current in [DATA_TYPE__DATE_TIME, DATA_TYPE__BOOLEAN, DATA_TYPE__STRING]:
+                result = DATA_TYPE__STRING
+        elif result == DATA_TYPE__FLOAT:
+            # пока тип данных определён как дробное число
+            if current in [DATA_TYPE__DATE_TIME, DATA_TYPE__BOOLEAN, DATA_TYPE__STRING]:
+                result = DATA_TYPE__STRING
+        elif result == DATA_TYPE__DATE_TIME:
+            # пока тип данных определён как дата/время
+            if current != DATA_TYPE__DATE_TIME:
+                result = DATA_TYPE__STRING
+        elif result == DATA_TYPE__BOOLEAN:
+            # пока тип данных определён как логическое значение
+            if current != DATA_TYPE__BOOLEAN:
+                result = DATA_TYPE__STRING
+        if result == DATA_TYPE__STRING:
+            break
+    return result
+
+# ----- Конвертировать строку в указанный тип данных -----
+def convert_string_to_data_type(s:str, target_data_type:str, exception_on_wrong_data_type:bool, comma_to_dots:bool = False):
+    result = None
+    if target_data_type == DATA_TYPE__INTEGER:
+        try:
+            result = int(s)
+        except:
+            if exception_on_wrong_data_type:
+                result = int(s)
+            else:
+                result = None
+    elif target_data_type == DATA_TYPE__FLOAT:
+        if comma_to_dots:
+            s = s.replace(",", ".")
+        try:
+            result = float(s)
+        except:
+            if exception_on_wrong_data_type:
+                result = float(s)
+            else:
+                result = None
+    elif target_data_type == DATA_TYPE__BOOLEAN:
+        if s.lower() in TRUE_VALUES:
+            result = True
+        elif s.lower() in FALSE_VALUES:
+            result = False
+        else:
+            # строка не присутствует ни в массив TRUE_VALUES[], ни в массиве FALSE_VALUES[]
+            if exception_on_wrong_data_type:
+                raise ValueError("Cannot convert '{}' neither to True nor False" . format(s))
+            else:
+                result = None
+    elif target_data_type == DATA_TYPE__DATE_TIME:
+        result = str_to_time(s)
+        if result == None:
+            if exception_on_wrong_data_type:
+                raise ValueError("Cannot convert '{} to date/time data-type" . format(s))
+    elif target_data_type == DATA_TYPE__STRING:
+        result = str(s)
     else:
-        # считаем, что передан одномерный массив строк
-        for s in data:
-            current = detect_data_type_for_string(s, comma_to_dots)
-            if result == DATA_TYPE__UNKNOWN:
-                # первый элемент
-                result = current
-            elif result == DATA_TYPE__INTEGER:
-                # пока тип данных определён как целое число
-                if current == DATA_TYPE__FLOAT:
-                    result = DATA_TYPE__FLOAT
-                if current in [DATA_TYPE__DATE_TIME, DATA_TYPE__BOOLEAN, DATA_TYPE__STRING]:
-                    result = DATA_TYPE__STRING
-            elif result == DATA_TYPE__FLOAT:
-                # пока тип данных определён как дробное число
-                if current in [DATA_TYPE__DATE_TIME, DATA_TYPE__BOOLEAN, DATA_TYPE__STRING]:
-                    result = DATA_TYPE__STRING
-            elif result == DATA_TYPE__DATE_TIME:
-                # пока тип данных определён как дата/время
-                if current != DATA_TYPE__DATE_TIME:
-                    result = DATA_TYPE__STRING
-            elif result == DATA_TYPE__BOOLEAN:
-                # пока тип данных определён как логическое значение
-                if current != DATA_TYPE__BOOLEAN:
-                    result = DATA_TYPE__STRING
-            if result == DATA_TYPE__STRING:
-                break
+        result = s
     return result
 
 
+def convert_array_to_data_type(items, target_data_type, comma_to_dots):
+    if target_data_type != DATA_TYPE__STRING:
+        for i in range(len(items)):
+            items[i] = convert_string_to_data_type(
+                items[i], 
+                target_data_type = target_data_type,
+                exception_on_wrong_data_type = False,
+                comma_to_dots = comma_to_dots
+            )
+
+
+# ----- Преобразовать одномерный массив A[] в двумерный с N столбцами, где N - количество классов в classes[] -----
+# каждый элемент classes[] - список значений соответствующих одному классу
+def one_hot_encoding(A, classes):
+    # classes - [ 
+    #   ["Iris-setosa", "setosa"], 
+    #   ["Iris-versicolor", "versicolor"], 
+    #   ["Iris-virginica", "virginica"] ]
+    # ]
+    result = []
+    for i in range(len(A)):
+        ohe_row = [0 for j in range(len(classes))]
+        for j in range(len(classes)):
+            if A[i] in classes[j]:
+                ohe_row[j] = 1.0
+                break
+        result.append(ohe_row)
+    return result
+
+# ----- Извлечь вектор-столбец из двумерного массива -----
+def extract_from_table(T, column_number):
+    result = []
+    for i in range(len(T)):
+        result.append(T[i][column_number])
+    return result
+
+
+# ----- Обновить в двумерном массиве значения столбца -----
+def store_to_table(T, column_number, vector):
+    for i in range(len(vector)):
+        T[i][column_number] = vector[i]
+
+
+# ----- Получить список уникальных значений в массиве -----
+def get_unique_values(T, column_number = None):
+    if column_number == None:
+        # считаем, что передан одномерный массив
+        return list(set(T))
+    else:
+        tmp_vector = extract_from_table(T, column_number)
+        return list(set(tmp_vector))
+
+
+#s1 = "abc"; s2 = str(s1); print(s2); exit(0)
+#x1 = convert_string_to_data_type("True", DATA_TYPE__BOOLEAN, True); print(x1); exit(0)
+#x1 = convert_string_to_data_type("15.15.2024", DATA_TYPE__DATE_TIME, True); print(x1); exit(0)
 
 if __name__ == "__main__":
     #s1 = "hello #@! world"; s2 = remove_comment(s1, "#@!"); print(s2)
@@ -285,5 +370,5 @@ if __name__ == "__main__":
     #items = [5, 3, 8, 12, 7]; prc = get_procentile(0.75, items,); print(prc)
     #items = ["5", "6", "7.1", "2024.11.30"]; data_type = detect_data_type(items); print(data_type)
     #items = ["2024.11.30", "2024.12.01", "2024.12.02", "2024.11.30"]; data_type = detect_data_type(items); print(data_type)
-    items = ["1", "0", "0", "1", "1"]; data_type = detect_data_type(items); print(data_type)
+    items = ["1", "0", "2", "1", "1"]; data_type = detect_data_type_for_array(items, False); print(data_type)
     pass
