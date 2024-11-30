@@ -5,6 +5,7 @@ from collections import OrderedDict
 import datetime
 import numpy as np
 import statistics
+import util
 
 
 NPCOLUMN_KIND__SIMPLE = "simple"
@@ -38,55 +39,7 @@ pprint(x2)
 exit(0)
 """
 
-# ----- удалить комментарий -----
-def remove_comment(s, comment_sequence):
-    p = s.find(comment_sequence)
-    if p >= 0:
-        s = s[0:p]
-    s = s.strip()
-    return s
 
-# ----- Попытаться преобразовать строку к дробному числу (при ошибке - None) -----
-# ----- comma_to_dots: когда True - заменить запятую на точку перед конвертацией -----
-def strToFloat(s, comma_to_dots = False):
-    if comma_to_dots:
-        s = s.replace(",", ".")
-    result = None
-    try:
-        result = float(s)
-    except:
-        result = None
-    return result
-
-#x = strToFloat(",123456789", True);  print("x=", x, type(x));  exit(0)
-
-# ----- Среднее отклонение от среднего значения (заранее вычисленного) -----
-def get_avg_deviation(items, avg:float) -> float:
-    deviation = 0.0
-    n = 0
-    for x in items:
-        deviation += abs(x - avg)
-        n += 1
-    deviation /= n
-    return deviation
-
-# ----- Процентиль ------
-def get_procentile(prc:float, items, already_sorted:bool = False, keep_out_sorted:bool = False):
-    if not already_sorted:
-        if keep_out_sorted:
-            # наружу из фукнции выйдет сортированный массив (сортировать переданный массив)
-            items.sort() 
-        else:
-            # сортировка не выйдет за пределы функции (создать новый массив для сортировки)
-            items = sorted(items) 
-
-    n = len(items)
-    p = int(prc * n)
-    if p < 0:
-        p = 0
-    if p >= n:
-        p = n - 1
-    return items[p]
 
 # ----- На основе массива items получить список с наиболее частыми значениями списка -----
 # ----- каждый элемент полученного массива - кортёж, в котором первый элемент - значение из items[], 
@@ -193,19 +146,6 @@ pprint(char_hist)
 exit(0)
 """
 
-# ----- Получить самую длинную строку в массиве -----
-def getLongestString(items):
-    longestString = items[0]
-    max_len = len(longestString)
-    for s in items:
-        if len(s) > max_len:
-            longestString = s
-            max_len = len(longestString)
-    return longestString
-
-#X = ["qq", "www", "1234", "eee", "4567"]
-#print(getLongestString(X))
-#exit(0)
 
 # ----- Подсчёт статистик для перечислимых типов данных (целое, строка, время) -----
 def calcEnumeratedStatistics(items, stat_dict, most_frequent_count = 10) -> None:
@@ -237,141 +177,6 @@ def calcProcentiles(items, stat_dict, procentiles = [0.1, 0.25, 0.5, 0.75, 0.9])
         prc_name = "prc#{:.2f}" . format(prc)
         stat_dict["procentiles"][prc_name] = get_procentile(prc, items_sorted, already_sorted=True)
 
-
-# ------- Попытаться преобразовать строку в дату/время; вернуть дату или None, если конвертирование не удалось -------
-def strToTime(s):
-    #                     123456
-    # dd.mm.yyyy hh:mm:ss.micros
-    # yyyy-mm-dd hh:mm:ss.micros
-    # 01234567890123456789012345
-    if len(s) < 10:
-        # слишком мало символов, чтобы быть датой
-        return None
-    year = None
-    month = None
-    day = None
-    if (
-        s[0].isdigit() and
-        s[1].isdigit() and
-        not(s[2].isdigit()) and
-        s[3].isdigit() and
-        s[4].isdigit() and
-        not(s[5].isdigit()) and
-        s[6].isdigit() and
-        s[7].isdigit() and
-        s[8].isdigit() and
-        s[9].isdigit() and
-        1 == 1
-    ) :
-        # dd.mm.yyyy hh:mm:ss
-        # 0123456789012345678
-        try:
-            day = int(s[0:2])
-            month = int(s[3:5])
-            year = int(s[6:10])
-        except:
-            return None
-    elif (
-        s[0].isdigit() and
-        s[1].isdigit() and
-        s[2].isdigit() and
-        s[3].isdigit() and
-        not(s[4].isdigit()) and
-        s[5].isdigit() and
-        s[6].isdigit() and
-        not(s[7].isdigit()) and
-        s[8].isdigit() and
-        s[9].isdigit() and
-        1 == 1
-    ) :
-        # yyyy-mm-dd hh:mm:ss
-        # 0123456789012345678
-        try:
-            year = int(s[0:4])
-            month = int(s[5:7])
-            day = int(s[8:10])
-        except:
-            return None
-    else:
-        return None
-    hour = 0
-    minute = 0
-    second = 0
-    micros = 0
-    # dd.mm.yyyy hh:mm:ss
-    # 0123456789012345678
-    if len(s) >= 13:
-        try:
-            hour = int(s[11:13])
-        except:
-            return None
-    if len(s) >= 16:
-        try:
-            minute = int(s[14:16])
-        except:
-            return None
-    if len(s) >= 19:
-        try:
-            second = int(s[17:19])
-        except:
-            return None
-        
-    if len(s) >= 21 and not s[19].isdigit() :
-        # микросекунды
-        i = 20
-        micros_str = ""
-        while i < len(s) and i < 26:
-            if s[i].isdigit():
-                micros_str += s[i]
-                i += 1
-
-        n1 = len(micros_str)
-        #print("micros_str:", micros_str, "  n1:", n1)
-        # удалить ведущие нули
-        leading_zeros_count = 0
-        while len(micros_str) > 0 and micros_str[0] == "0":
-            leading_zeros_count += 1
-            micros_str = micros_str[1:len(micros_str)]
-                
-        try:
-            micros = int(micros_str)
-            #micros = float("0." + micros_str)
-            n2 = 6 - n1
-            for i in range(n2):
-                micros *= 10
-            #print("micros:", micros)
-        except:
-            return None
-
-    #print(year, month, day, hour, minute, second)
-    try:
-        result = datetime.datetime(year, month, day, hour, minute, second, micros)
-    except:
-        return None
-    return result
-
-# ------- На какой тип данных похожа строка переданная в s -------
-# ----- вернуть приведённое к определённому типу значение и название типа данных -----
-def detectDataTypeForString(s:str, comma_to_dots:bool) -> str:
-    try:
-        # является ли переданный параметр целым числом
-        x = int(s)
-        return DATA_TYPE__INTEGER
-    except:
-        pass
-
-    # является ли переданный параметр дробным числом (возможно, запятая вместо точки)
-    x = strToFloat(s, comma_to_dots)
-    if x != None:
-        return DATA_TYPE__FLOAT
-
-    # является ли переданный параметр датой/временем в форматах dd.mm.yyyy hh:mm:ss или yyyy-mm-dd hh:mm:ss
-    x = strToTime(s)
-    if x != None:
-        return DATA_TYPE__TIME
-
-    # оставить переданный параметр строкой
-    return DATA_TYPE__STRING
 
 # ----- Определить тип данных (целое, дробное, время, строка) -----
 def detectDataTypeForList(items, comma_to_dots:bool) -> str:
@@ -423,10 +228,10 @@ def convertListToDataType(items, targetDataType:str, comma_to_dots:bool) -> None
             items[i] = int(items[i])
     elif targetDataType == DATA_TYPE__FLOAT:
         for i in range(itemsCount):
-            items[i] = strToFloat(items[i], comma_to_dots)
+            items[i] = util.str_to_float(items[i], comma_to_dots)
     elif targetDataType == DATA_TYPE__TIME:
         for i in range(itemsCount):
-            items[i] = strToTime(items[i])
+            items[i] = util.str_to_float(items[i])
     elif targetDataType == DATA_TYPE__STRING:
         # для строк не планируется выполнять конвертацию, т.к. изначально данные записываются в виде строки,
         # но на всякий случай пусть будет заложена возможность конвертации
@@ -668,7 +473,7 @@ class _RT_AnalysisContainer:
                 c["stat"]["histogram"]       = calcHistogram(items, c["histogramBarsCount"])
                 c["stat"]["histogram_chars"] = charsHistogram(c["stat"]["histogram"], self.histogramMaxCharsCount, self.histogramChar)
         elif c["data_type"] == DATA_TYPE__STRING:
-            c["stat"]["longest"] = getLongestString(items)
+            c["stat"]["longest"] = util.get_the_longest_string(items)
             c["stat"]["longest_length"] = len(c["stat"]["longest"])
             calcEnumeratedStatistics(items, c["stat"], c["most_frequent_count"])
 
@@ -765,7 +570,7 @@ class ReadTable:
                 while len(s_raw) > 0 and s_raw[-1] in ["\r", "\n"]:
                     # удалить переводы строк
                     s_raw = s_raw[0:len(s_raw)-1]
-                s = remove_comment(s_raw, self.comment)
+                s = util.remove_comment(s_raw, self.comment)
                 if self.checkStringFunction != None:
                     # указана пользовательская функция для предварительной обработки строки из файла
                     s = self.checkStringFunction(s)
@@ -821,301 +626,5 @@ class ReadTable:
     def Analyze(self, columns = []):
         self.A.Analyze(columns, self.comma_to_dots)
                     
-
 # --- end of class ReadTable ---
 
-"""s1 = "  abc 123  "
-s2 = s1.rstrip()
-print("[{}]" . format(s2))
-exit(0  )"""
-
-def checkString1(s:str) -> str:
-    seek_str = "2022,11,"
-    replace_to = "2010-11-"
-    p1 = s.find(seek_str)
-    if p1 >= 0:
-        p2 = p1 + len(seek_str)
-        s1 = s[0:p1]
-        s2 = s[p2:len(s)]
-        s = s1 + replace_to + s2
-    return s
-
-# ----- На основе года определить, являются ли данные для обучения или для проверки -----
-def isTestData(s:str) -> bool:
-    return s[0:4] == "2024"
-
-#print(isTestData("2022.01")); print(isTestData("2023.01")); print(isTestData("2024.01")); print(isTestData("2025.01")); exit(0)
-
-# ----- Оставить в массиве данные, если в нём данные для обучения -----
-def checkParts_Train(parts):
-    forTesting = isTestData(parts[3])
-    if forTesting:
-        parts.clear()
-    else:
-        pass
-
-# ----- Оставить в массиве данные, если в нём данные для проверки -----
-def checkParts_Test(parts):
-    forTesting = isTestData(parts[3])
-    if forTesting:
-        pass
-    else:
-        parts.clear()
-
-
-#s1 = "qqw2022,11,31abc"
-#s2 = checkString1(s1)
-#print(s2)
-#exit(0)
-
-def real1():
-    filename = "C:\\Users\\masha\\AppData\\Roaming\\MetaQuotes\\Terminal\\9EB2973C469D24060397BB5158EA73A5\\MQL5\\Files\\NNExport1_H1_incr=1x24x5_smth=3x1(5).xls"
-    rt = ReadTable("\t", ";")
-    rt.read(filename, encoding="cp1251", analyze_all_columns=True)
-    rt.Analyze()
-    print("--- A ---")
-    pprint(rt.A.columns)
-    print("--- end of A ---")
-    exit(0)
-
-def real2():
-    filename = "C:\\Users\\masha\\AppData\\Roaming\\MetaQuotes\\Terminal\\9EB2973C469D24060397BB5158EA73A5\\MQL5\\Files\\NNExport1_H1_incr=1x24x5_smth=3x1(5).xls"
-    rt = ReadTable("\t", ";")
-    rt.addNPContainer("X")
-
-    rt.NPs["X"].addColumn_Numeric("Small#1")
-    rt.NPs["X"].addColumn_Numeric("Small#2")
-    rt.NPs["X"].addColumn_Numeric("Small#3")
-    rt.NPs["X"].addColumn_Numeric("Small#5")
-    rt.NPs["X"].addColumn_Numeric("Small#8")
-    rt.NPs["X"].addColumn_Numeric("Small#13")
-    rt.NPs["X"].addColumn_Numeric("Small#21")
-    rt.NPs["X"].addColumn_Numeric("Small#34")
-    rt.NPs["X"].addColumn_Numeric("Small#55")
-    rt.NPs["X"].addColumn_Numeric("Small#89")
-    rt.NPs["X"].addColumn_Numeric("Small#144")
-    
-    rt.NPs["X"].addColumn_Numeric("Main#1")
-    rt.NPs["X"].addColumn_Numeric("Main#2")
-    rt.NPs["X"].addColumn_Numeric("Main#3")
-    rt.NPs["X"].addColumn_Numeric("Main#5")
-    rt.NPs["X"].addColumn_Numeric("Main#8")
-    rt.NPs["X"].addColumn_Numeric("Main#13")
-    rt.NPs["X"].addColumn_Numeric("Main#21")
-    rt.NPs["X"].addColumn_Numeric("Main#34")
-    rt.NPs["X"].addColumn_Numeric("Main#55")
-    rt.NPs["X"].addColumn_Numeric("Main#89")
-    rt.NPs["X"].addColumn_Numeric("Main#144")
-    
-    rt.NPs["X"].addColumn_Numeric("Big#1")
-    rt.NPs["X"].addColumn_Numeric("Big#2")
-    rt.NPs["X"].addColumn_Numeric("Big#3")
-    rt.NPs["X"].addColumn_Numeric("Big#5")
-    rt.NPs["X"].addColumn_Numeric("Big#8")
-    rt.NPs["X"].addColumn_Numeric("Big#13")
-    rt.NPs["X"].addColumn_Numeric("Big#21")
-    rt.NPs["X"].addColumn_Numeric("Big#34")
-    rt.NPs["X"].addColumn_Numeric("Big#55")
-    rt.NPs["X"].addColumn_Numeric("Big#89")
-    rt.NPs["X"].addColumn_Numeric("Big#144")
-
-    rt.read(filename, encoding="cp1251", analyze_all_columns=True)
-    pprint(rt.NPs["X"].data)
-    exit(0)
-
-def real3(filename = "C:\\Users\\masha\\AppData\\Roaming\\MetaQuotes\\Terminal\\9EB2973C469D24060397BB5158EA73A5\\MQL5\\Files\\NNExport1_H1_1x3-24x2-5x1-1_AUDCAD.xls"):
-    rt = ReadTable("\t", ";", comma_to_dots=True)
-    #rt.checkStringFunction = checkString1
-    # +++ X +++
-    rt.addNPContainer("X_train")
-
-    rt.NPs["X_train"].addColumn_Numeric("Small#1")
-    rt.NPs["X_train"].addColumn_Numeric("Small#2")
-    rt.NPs["X_train"].addColumn_Numeric("Small#3")
-    rt.NPs["X_train"].addColumn_Numeric("Small#5")
-    rt.NPs["X_train"].addColumn_Numeric("Small#8")
-    rt.NPs["X_train"].addColumn_Numeric("Small#13")
-    rt.NPs["X_train"].addColumn_Numeric("Small#21")
-    rt.NPs["X_train"].addColumn_Numeric("Small#34")
-    rt.NPs["X_train"].addColumn_Numeric("Small#55")
-    rt.NPs["X_train"].addColumn_Numeric("Small#89")
-    rt.NPs["X_train"].addColumn_Numeric("Small#144")
-    
-    rt.NPs["X_train"].addColumn_Numeric("Main#1")
-    rt.NPs["X_train"].addColumn_Numeric("Main#2")
-    rt.NPs["X_train"].addColumn_Numeric("Main#3")
-    rt.NPs["X_train"].addColumn_Numeric("Main#5")
-    rt.NPs["X_train"].addColumn_Numeric("Main#8")
-    rt.NPs["X_train"].addColumn_Numeric("Main#13")
-    rt.NPs["X_train"].addColumn_Numeric("Main#21")
-    rt.NPs["X_train"].addColumn_Numeric("Main#34")
-    rt.NPs["X_train"].addColumn_Numeric("Main#55")
-    rt.NPs["X_train"].addColumn_Numeric("Main#89")
-    rt.NPs["X_train"].addColumn_Numeric("Main#144")
-    
-    rt.NPs["X_train"].addColumn_Numeric("Big#1")
-    rt.NPs["X_train"].addColumn_Numeric("Big#2")
-    rt.NPs["X_train"].addColumn_Numeric("Big#3")
-    rt.NPs["X_train"].addColumn_Numeric("Big#5")
-    rt.NPs["X_train"].addColumn_Numeric("Big#8")
-    rt.NPs["X_train"].addColumn_Numeric("Big#13")
-    rt.NPs["X_train"].addColumn_Numeric("Big#21")
-    rt.NPs["X_train"].addColumn_Numeric("Big#34")
-    rt.NPs["X_train"].addColumn_Numeric("Big#55")
-    rt.NPs["X_train"].addColumn_Numeric("Big#89")
-    rt.NPs["X_train"].addColumn_Numeric("Big#144")
-
-    rt.copyColumns("X_train", "X_test")
-    rt.NPs["X_train"].checkPartsFunction = checkParts_Train
-    rt.NPs["X_test"].checkPartsFunction = checkParts_Test
-
-    # +++ Y +++
-    rt.addNPContainer("Y_train")
-    rt.NPs["Y_train"].addColumn_OHE("TrendSign", "TrendUp", ["BUY"])
-    rt.NPs["Y_train"].addColumn_OHE("TrendSign", "TrendFlat", ["NONE"])
-    rt.NPs["Y_train"].addColumn_OHE("TrendSign", "TrendDown", ["SELL"])
-    rt.copyColumns("Y_train", "Y_test")
-    rt.NPs["Y_train"].checkPartsFunction = checkParts_Train
-    rt.NPs["Y_test"].checkPartsFunction = checkParts_Test
-
-    #rt.read(filename, analyze_all_columns=True); rt.Analyze(); pprint(rt.A.columns)
-    rt.read(filename)
-    #rt.NPs["Y_train"].dumpData("c:\\python\\y_train.tsv", "\t")
-    #rt.NPs["Y_test"].dumpData("c:\\python\\y_test.tsv", "\t")
-
-    # +++ sklearn +++
-    from sklearn.neural_network import MLPClassifier
-    from sklearn.datasets import make_classification
-    from sklearn.model_selection import train_test_split
-
-    X_train = rt.NPs["X_train"].data
-    Y_train = rt.NPs["Y_train"].data
-    X_test = rt.NPs["X_test"].data
-    Y_test = rt.NPs["Y_test"].data
-    #X, y = make_classification(n_samples=100, random_state=1)
-    #X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, random_state=1)
-
-    # activation{‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default=’relu’
-    # solver{‘lbfgs’, ‘sgd’, ‘adam’}, default=’adam’
-    clf = MLPClassifier(
-        hidden_layer_sizes = (50, ),
-        random_state = 1,
-        max_iter = 5000,
-        activation = "tanh",
-        solver = "adam",
-        verbose = True
-    )
-    clf.fit(X_train, Y_train)
-
-    r1 = clf.predict_proba(X_test)
-    print(r1)
-
-    r2 = clf.predict(X_test)
-    print(r2)
-    
-    r3 = clf.score(X_test, Y_test)
-    print(r3)
-    #clf.predict_proba(X_test[:1])
-    #clf.predict(X_test[:5, :])
-    #array([1, 0, 1, 0, 1])
-    #clf.score(X_test, y_test)
-    #0.8...
-
-    import pickle
-    p = open("c:\\python\\1.pickle", "wb")
-    pickle.dump(clf, p)
-    p.close()
-    # save the model 
-    #filename = 'linear_model.sav'
-    #pickle.dump(regressor, open(filename, 'wb')) 
-
-    exit(0)
-
-def use1():
-    import pickle
-    #p = open("c:\\python\\1.pickle", "rb")
-    # load the model 
-    filename = "c:\\python\\1.pickle"
-    load_model = pickle.load(open(filename, 'rb'))
-
-    y_pred = load_model.predict(X_test) 
-    print('root mean squared error : ', np.sqrt( metrics.mean_squared_error(y_test, y_pred)))
-    
-if __name__ == "__main__":
-    #real1()
-    #real2()
-    real3()
-    rt = ReadTable("\t", ";", True)
-
-    print("--- X ---")
-    rt.addNPContainer("X")
-    rt.NPs["X"].addColumn_Numeric("PClose", "ClsPrc")
-    rt.NPs["X"].addColumn_Numeric("Stoch:13x5x3", "Stoch")
-    rt.NPs["X"].addColumn_Mapping("dow", "dowNumb", {
-        "mon": 1,
-        "tue": 2,
-        "web": 3,
-        "thu": 4,
-        "fri": 5,
-        "sat": 6,
-        "sun": 7
-    })
-    pprint(rt.NPs["X"].columns)
-
-    print("--- Y ---")
-    rt.addNPContainer("Y")
-    rt.NPs["Y"].addColumn_OHE("Trend", "TrendUp", ["+1", "buy", "up"])
-    rt.NPs["Y"].addColumn_OHE("Trend", "TrendFlat", ["0", "flat"])
-    rt.NPs["Y"].addColumn_OHE("Trend", "TrendDown", ["-1", "sell", "down"])
-    pprint(rt.NPs["Y"].columns)
-
-    #print("--- A ---")
-    #rt.A.addColumn("POpen")
-    #rt.A.addColumn("PClose", procentiles=[])
-    #pprint(rt.A.columns)
-
-    rt.read("file1.txt", encoding="iso8859", analyze_all_columns=True)
-
-    print("--- XData ---")
-    pprint(rt.NPs["X"].data)
-
-    print("--- AData ---")
-    pprint(rt.A.data)
-
-    rt.Analyze()
-    print("--- A ---")
-    pprint(rt.A.columns)
-    print("--- end of A ---")
-
-    exit(0)
-
-    rt.addNPColumn_Numeric("X", "POpen", "POpen")
-    rt.addNPColumn_Numeric("X", "PClose", "PClose")
-    rt.addNPColumn_Mapping("X", "dow", "dowNumb", {
-        "mon": 1,
-        "tue": 2,
-        "web": 3,
-        "thu": 4,
-        "fri": 5,
-        "sat": 6,
-        "sun": 7
-    })
-
-    rt.addNPColumn_OHE("Y", "Trend", "TrendUp", ["+1", "buy", "up"])
-    rt.addNPColumn_OHE("Y", "Trend", "TrendFlat", ["0", "flat"])
-    rt.addNPColumn_OHE("Y", "Trend", "TrendDown", ["-1", "sell", "down"])
-
-    rt.analyzeColumn("POpen")
-    rt.analyzeColumn("PClose")
-
-    rt.read("file1.txt")
-
-    print("--- XColumns: ---")
-    #pprint(rt.NPs["X"].columns)
-    pprint(rt.NPs["X"]["columns"])
-    print("--- YColumns: ---")
-    #pprint(rt.NPs["Y"].columns)
-    pprint(rt.NPs["Y"]["columns"])
-    print("--- AColumns: ---")
-    pprint(rt.A)
-    #rt.printAnalyzedColumns()
