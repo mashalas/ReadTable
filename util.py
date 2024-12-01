@@ -14,8 +14,16 @@ DATA_TYPE__AUTO = "a"
 TRUE_VALUES  = ["+", "yes", "true",  "on" ] # строковые значения должны быть в нижнем регистре, проверяемая строка переводится в нижний регистр
 FALSE_VALUES = ["-", "no",  "false", "off"] # строковые значения должны быть в нижнем регистре, проверяемая строка переводится в нижний регистр
 
+TRANSFORM__TO_UPPER_CASE = "ToUpperCase"
+TRANSFORM__TO_LOWER_CASE = "ToLowerCase"
+TRANSFORM__STRIP_SPACES = "StripSpaces"
+TRANSFORM__COMMA_TO_DOTS = "CommaToDots"
+TRANSFORM__FROM_AMERICAN_DATES_TO_NORMAL = "FromAmericanDatesToNormal" # mm.dd.yyyy => dd.mm.yyyy
+TRANSFORM__FROM_AMERICAN_DATES_TO_ISO = "FromAmericanDatesToISO" # mm.dd.yyyy => yyyy-mm-dd
+
+
 # ----- удалить комментарий -----
-def remove_comment(s, comment_sequence):
+def remove_comment(s, comment_sequence) -> str:
     p = s.find(comment_sequence)
     if p >= 0:
         s = s[0:p]
@@ -23,18 +31,24 @@ def remove_comment(s, comment_sequence):
     return s
 
 
+# ----- Однократная замена запятой на точку (1,2345 => 1.2345) -----
+def comma_to_dot_once(s:str) -> str:
+    count = s.count(",")
+    if count == 1:
+        s = s.replace(",", ".")
+
+"""
 # ----- Попытаться преобразовать строку к дробному числу (при ошибке - None) -----
 # ----- comma_to_dots: когда True - заменить запятую на точку перед конвертацией -----
-def str_to_float(s, comma_to_dots = False):
-    if comma_to_dots:
-        s = s.replace(",", ".")
+def str_to_float(s):
+    s = comma_to_dot_once(s)
     result = None
     try:
         result = float(s)
     except:
         result = None
     return result
-
+"""
 
 # ----- Попытаться преобразовать строку в логическому значению (когда ни одно из значений не подходит - None) ---
 def str_to_boolean(s):
@@ -56,6 +70,52 @@ def get_avg_deviation(items, avg:float) -> float:
     deviation /= n
     return deviation
 
+# ----- Из даты в американском формате (mm.dd.yyyy) перевести в норальный формат даты (dd.mm.yyyy) -----
+def from_american_dates(s, to_iso_format:bool = False):
+    if len(s) < 10:
+        # слишком мало символов, чтобы быть датой
+        return s
+    year = None
+    month = None
+    day = None
+    # dd.mm.yyyy
+    # 0123456789
+    if (
+        s[0].isdigit() and
+        s[1].isdigit() and
+        not(s[2].isdigit()) and
+        s[3].isdigit() and
+        s[4].isdigit() and
+        not(s[5].isdigit()) and
+        s[6].isdigit() and
+        s[7].isdigit() and
+        s[8].isdigit() and
+        s[9].isdigit() and
+        1 == 1
+    ):
+        # формат nn?nn?nnnn соблюдён
+        month = s[0:2]
+        day = s[3:5]
+        year = s[6:10]
+        try:
+            d = datetime.datetime(int(year), int(month), int(day))
+        except:
+            # не удалось конвертировать в дату
+            year = None
+            month = None
+            day = None
+    result = s
+    if year != None and month != None and day != None:
+        if to_iso_format:
+            result = year + "-" + month + "-" + day + s[10:len(s)]
+        else:
+            result = day + "." + month + "." + year + s[10:len(s)]
+    else:
+        # не является строкой в формате nn?nn?nnnn или по выделенным компонентам не удалось сформировать корректную дату
+        result = s
+    return result
+
+#print(from_american_dates("16.21.1980 12:50", True)); exit(0)
 
 # ----- Процентиль ------
 def get_procentile(prc:float, items, already_sorted:bool = False, keep_out_sorted:bool = False):
@@ -205,7 +265,7 @@ def str_to_time(s):
 
 # ------- На какой тип данных похожа строка переданная в s -------
 # ----- вернуть приведённое к определённому типу значение и название типа данных -----
-def detect_data_type_for_string(s:str, comma_to_dots:bool) -> str:
+def detect_data_type_for_string(s:str) -> str:
     # является ди переданная строка логическим значением
     x = str_to_boolean(s)
     if x != None:
@@ -219,9 +279,11 @@ def detect_data_type_for_string(s:str, comma_to_dots:bool) -> str:
         pass
 
     # является ди переданная строка дробным числом (возможно, запятая вместо точки)
-    x = str_to_float(s, comma_to_dots)
-    if x != None:
+    try:
+        x = float(s)
         return DATA_TYPE__FLOAT
+    except:
+        pass
 
     # является ди переданная строка датой/временем в форматах dd.mm.yyyy hh:mm:ss или yyyy-mm-dd hh:mm:ss
     x = str_to_time(s)
@@ -233,10 +295,10 @@ def detect_data_type_for_string(s:str, comma_to_dots:bool) -> str:
 
 
 # ----- Для одномерного массива строк  определить тип данных, к которому относятся значения этого массива -----
-def detect_data_type_for_array(data, comma_to_dots = False):
+def detect_data_type_for_array(data):
     result = DATA_TYPE__UNKNOWN
     for s in data:
-        current = detect_data_type_for_string(s, comma_to_dots)
+        current = detect_data_type_for_string(s)
         if result == DATA_TYPE__UNKNOWN:
             # первый элемент
             result = current
@@ -263,7 +325,7 @@ def detect_data_type_for_array(data, comma_to_dots = False):
     return result
 
 # ----- Конвертировать строку в указанный тип данных -----
-def convert_string_to_data_type(s:str, target_data_type:str, exception_on_wrong_data_type:bool, comma_to_dots:bool = False):
+def convert_string_to_data_type(s:str, target_data_type:str, exception_on_wrong_data_type:bool):
     result = None
     if target_data_type == DATA_TYPE__INTEGER:
         try:
@@ -274,8 +336,6 @@ def convert_string_to_data_type(s:str, target_data_type:str, exception_on_wrong_
             else:
                 result = None
     elif target_data_type == DATA_TYPE__FLOAT:
-        if comma_to_dots:
-            s = s.replace(",", ".")
         try:
             result = float(s)
         except:
@@ -306,34 +366,49 @@ def convert_string_to_data_type(s:str, target_data_type:str, exception_on_wrong_
     return result
 
 
-def convert_array_to_data_type(items, target_data_type, comma_to_dots):
+def convert_array_to_data_type(items, target_data_type):
     if target_data_type != DATA_TYPE__STRING:
         for i in range(len(items)):
             items[i] = convert_string_to_data_type(
                 items[i], 
                 target_data_type = target_data_type,
-                exception_on_wrong_data_type = False,
-                comma_to_dots = comma_to_dots
+                exception_on_wrong_data_type = False
             )
 
 
 # ----- Преобразовать одномерный массив A[] в двумерный с N столбцами, где N - количество классов в classes[] -----
 # каждый элемент classes[] - список значений соответствующих одному классу
-def one_hot_encoding(A, classes):
+def one_hot_encoding(A, classes, case_sensitive:bool = True):
     # classes - [ 
     #   ["Iris-setosa", "setosa"], 
     #   ["Iris-versicolor", "versicolor"], 
     #   ["Iris-virginica", "virginica"] ]
     # ]
+    if not(case_sensitive):
+        # если без учёта регистра, то перевести все классы в нижний регистр
+        classes_lower = [x.lower() for x in classes]
     result = []
     for i in range(len(A)):
         ohe_row = [0 for j in range(len(classes))]
         for j in range(len(classes)):
-            if A[i] in classes[j]:
-                ohe_row[j] = 1.0
-                break
+            if case_sensitive:
+                # с учётом регистра
+                if A[i] in classes[j]:
+                    ohe_row[j] = 1.0
+                    break
+            else:
+                # без учёта регистра
+                if A[i].lower() in classes_lower[j]:
+                    ohe_row[j] = 1.0
+                    break
         result.append(ohe_row)
     return result
+
+#Y = ["aa", "bb", "aa", "cc"]
+#classes = ["Aa", "Bb"]
+#Y_ohe = one_hot_encoding(Y, classes, False)
+#print(Y_ohe)
+#exit(0)
 
 # ----- Извлечь вектор-столбец из двумерного массива -----
 def extract_from_table(T, column_number):
@@ -370,5 +445,5 @@ if __name__ == "__main__":
     #items = [5, 3, 8, 12, 7]; prc = get_procentile(0.75, items,); print(prc)
     #items = ["5", "6", "7.1", "2024.11.30"]; data_type = detect_data_type(items); print(data_type)
     #items = ["2024.11.30", "2024.12.01", "2024.12.02", "2024.11.30"]; data_type = detect_data_type(items); print(data_type)
-    items = ["1", "0", "2", "1", "1"]; data_type = detect_data_type_for_array(items, False); print(data_type)
+    items = ["1", "0", "2", "1", "1.2"]; data_type = detect_data_type_for_array(items); print(data_type)
     pass
