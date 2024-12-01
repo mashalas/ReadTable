@@ -34,7 +34,8 @@ def read_columns(
         multiseparators_as_one:bool = False, # несколько символов-разделителей интерпретировать как один
         named_arrays:bool = False, # прочитать данные не в двумерный массив, а в одномерные массивы являющиеся значениями словаря {"field1":[1,2,3] , "field2":[5,6,7]}
         exception_on_wrong_data_type:bool = False, # гененировать исключение при невозможности конвертировать строковое значение в указанный в target_types[] тип данных
-        transformations = {} # словаь трансформаций, в котором ключ - исходная строка из файла, значение - на что заменить эту строку или логические константы TRANSFORM_?? означающие некоторую замену (перевод в верхний/нижний регистр и т.д.)
+        transformations = {}, # словаь трансформаций, в котором ключ - исходная строка из файла, значение - на что заменить эту строку или логические константы TRANSFORM_?? означающие некоторую замену (перевод в верхний/нижний регистр и т.д.)
+        encoding = "utf-8" # кодировка читаемыех файлов
 ):
     if type(files) == type("abc"):
         # если указан один файл - преобразовать этот параметр в массив из одного элемента
@@ -56,7 +57,7 @@ def read_columns(
         header = []
         columns_indexes = []
         processed_data_rows_from_the_file = 0
-        with open(filename, "rt") as f:
+        with open(filename, "rt", encoding=encoding) as f:
             for s in f:
                 lines_count += 1
                 if skip_first_lines > 0 and lines_count <= skip_first_lines:

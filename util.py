@@ -432,11 +432,30 @@ def get_unique_values(T, column_number = None):
     else:
         tmp_vector = extract_from_table(T, column_number)
         return list(set(tmp_vector))
+    
+# ----- Добавить в один двумерный массив элементы другого двумерного массива (количество столбцов должно совпадать) -----
+def extend_double_dimensioned_array(append_to, append_from) -> None:
+    for i in range(len(append_from)):
+        row = []
+        for j in range(len(append_from[i])):
+            row.append(append_from[i][j])
+        append_to.append(row)
 
 
 #s1 = "abc"; s2 = str(s1); print(s2); exit(0)
 #x1 = convert_string_to_data_type("True", DATA_TYPE__BOOLEAN, True); print(x1); exit(0)
 #x1 = convert_string_to_data_type("15.15.2024", DATA_TYPE__DATE_TIME, True); print(x1); exit(0)
+        
+"""
+def use_mem(size):
+    import random
+    A = []
+    for i in range(size):
+        A.append(random.randint(-1000, +1000))
+    print(len(A))
+    A = None
+    print("free")
+"""
 
 if __name__ == "__main__":
     #s1 = "hello #@! world"; s2 = remove_comment(s1, "#@!"); print(s2)
@@ -445,5 +464,8 @@ if __name__ == "__main__":
     #items = [5, 3, 8, 12, 7]; prc = get_procentile(0.75, items,); print(prc)
     #items = ["5", "6", "7.1", "2024.11.30"]; data_type = detect_data_type(items); print(data_type)
     #items = ["2024.11.30", "2024.12.01", "2024.12.02", "2024.11.30"]; data_type = detect_data_type(items); print(data_type)
-    items = ["1", "0", "2", "1", "1.2"]; data_type = detect_data_type_for_array(items); print(data_type)
+    #items = ["1", "0", "2", "1", "1.2"]; data_type = detect_data_type_for_array(items); print(data_type)
+    #A1 = [ [1,2,3], [4,5,6] ]; A2 = [ [6,7,8], [9, 10, 11] ]; extend_double_dimensioned_array(A1, A2); print(A1)
+    #use_mem(1024*1024*1024)
+    import pathlib; WorkDir = pathlib.Path(__file__).resolve(strict=True).parent; print(WorkDir)
     pass
